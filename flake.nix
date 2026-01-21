@@ -16,7 +16,7 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python311;
+        python = pkgs.python3;
         pythonPackages = python.pkgs;
       in
       {
@@ -28,6 +28,7 @@
             pythonPackages.pygame-gui
             pythonPackages.pip
             pythonPackages.setuptools
+            pythonPackages.platformdirs
             pkgs.ty
           ];
 
