@@ -1,11 +1,9 @@
 {
   description = "Python development environment with pygame and pygame-gui";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
-
   outputs =
     {
       self,
@@ -16,26 +14,39 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python314;
+        python = pkgs.python313;
         pythonPackages = python.pkgs;
-        pygame = pythonPackages.pygame.override {
-          doCheck = false;
+        
+        # Override pygame to disable failing tests and add numpy
+        pygame-ce = pythonPackages.pygame.overridePythonAttrs (old: {
+          disabledTests = (old.disabledTests or []) ++ [
+            # Window tests fail in headless environment
+            "test_mouse_rect"
+            "window_test"
+          ];
+          # Add numpy as a runtime dependency for sndarray
+          propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [
+            pythonPackages.numpy
+          ];
+        });
+        
+        pygame-gui = pythonPackages.pygame-gui.override {
+          inherit pygame-ce; 
         };
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = [
+          packages = [
             python
+            pygame-ce
+            pygame-gui
             pythonPackages.numpy
-            pythonPackages.pygame-gui
             pythonPackages.pip
             pythonPackages.setuptools
             pythonPackages.platformdirs
             pythonPackages.matplotlib
             pkgs.ty
-            pygame
           ];
-
           shellHook = ''
             echo "Pygame development environment loaded"
             echo "Python version: $(python --version)"
@@ -44,8 +55,9 @@
             echo "Available packages:"
             echo "  - pygame"
             echo "  - pygame_gui"
+            echo "  - numpy"
+            echo "  - matplotlib"
           '';
-
           # Required for pygame on some systems
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
             pkgs.libGL
