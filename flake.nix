@@ -16,20 +16,24 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python3;
+        python = pkgs.python314;
         pythonPackages = python.pkgs;
+        pygame = pythonPackages.pygame.override {
+          doCheck = false;
+        };
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = [
             python
             pythonPackages.numpy
-            pythonPackages.pygame
             pythonPackages.pygame-gui
             pythonPackages.pip
             pythonPackages.setuptools
             pythonPackages.platformdirs
+            pythonPackages.matplotlib
             pkgs.ty
+            pygame
           ];
 
           shellHook = ''

@@ -1,3 +1,6 @@
+from PIL.ImageOps import scale
+from i18n.translator import t
+import platformdirs
 import json
 import os
 import pathlib
@@ -26,11 +29,15 @@ DIRT_TILE.fill(pygame.Color(64, 43, 26))
 GRASS_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
 GRASS_TILE.fill(pygame.Color(31, 105, 55))
 
+WATER_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
+WATER_TILE.fill(pygame.Color(43, 134, 204, 125))
+
 TILES = {
     0: None,
     1: STONE_TILE,
     2: DIRT_TILE,
-    3: GRASS_TILE
+    3: GRASS_TILE,
+    4: WATER_TILE
 }
 
 class ChunkManager:
@@ -86,23 +93,85 @@ class ChunkManager:
 
         print("Save worker exiting")
 
-    def create_chunk(self):
-        chunk: Chunk = np.zeros(shape=(self.width, self.height), dtype=BlockData)
-        # Fixed: Create a ground layer at y=256
-        chunk[:,:256] = 1
-        chunk[:, 256:262] = 2
-        chunk[:, 262] = 3
+    def _perlin_noise_1d(self, x_coords, chunk_x, octaves=4, persistence=0.5, scale=0.02):
+        """Generate 1D fractal noise using numpy"""
+        height_map = np.zeros(len(x_coords))
 
-        # Add some additional layers for visibility
+        for octave in range(octaves):
+            frequency = 2 ** octave
+            amplitude = persistence ** octave
+
+            # Generate smooth noise for this octave
+            x_scaled = (x_coords + chunk_x * self.width) * scale * frequency
+
+            # Simple interpolated noise using sine waves
+            noise = np.sin(x_scaled * 0.5) * np.cos(x_scaled * 0.7) * np.sin(x_scaled * 1.3)
+            noise += np.sin(x_scaled * 1.1) * 0.5
+
+            height_map += noise * amplitude
+
+        return height_map
+
+    def create_chunk(self, chunk_x: int):
+        chunk: Chunk = np.zeros(shape=(self.width, self.height), dtype=BlockData)
+
+        # Generate terrain height using fractal noise
+        x_coords = np.arange(self.width)
+        height_map = 0.5 * self._perlin_noise_1d(x_coords, chunk_x, octaves=5, persistence=0.5, scale=0.015)
+        earth_layer = 5 + 0.1 * self._perlin_noise_1d(x_coords, chunk_x, octaves=5, persistence=0.5, scale=0.1)
+
+        # Normalize height map to reasonable terrain range
+        base_height = 256
+        terrain_variation = 40
+        heights = (height_map * terrain_variation + base_height - 20).astype(int)
+
+        # Fill terrain based on height map
+        for x in range(self.width):
+            terrain_height = min(max(heights[x], 0), self.height - 1)
+
+            # Stone layer (everything below terrain - 5)
+            if terrain_height > 5:
+                chunk[x, :terrain_height - 5] = 1
+
+            earth = earth_layer[x]
+            print(earth)
+
+            # Dirt layer (5 blocks below surface)
+            dirt_start = int(max(0, terrain_height - earth))
+            chunk[x, dirt_start:terrain_height] = 2
+
+            # Grass on top
+            if terrain_height < self.height:
+                chunk[x, terrain_height] = 3
+
+            if terrain_height < base_height + 50:
+                chunk[x, terrain_height:(base_height + 50)] = 4
+
         return chunk
 
     def generate_chunk(self, x: int):
         with self._lock:
-            self.chunk_cache[x] = self.create_chunk()
+            self.chunk_cache[x] = self.create_chunk(x)
 
     def get_chunk_from_cache(self, x: int) -> Chunk | None:
         with self._lock:
             return self.chunk_cache.get(x, None)
+
+    def load_chunks_only(self, chunks: Iterable[int]):
+        # FIXED: Corrected logic to properly load desired chunks and unload others
+        chunks_set = set(chunks)
+
+        with self._lock:
+            # Find chunks to unload (in cache but not in desired set)
+            to_unload = [x for x in self.chunk_cache.keys() if x not in chunks_set]
+
+        # Unload chunks not in the desired set
+        for x in to_unload:
+            self.unload_chunk(x)
+
+        # Load chunks that should be loaded
+        for chunk in chunks_set:
+            self.load_chunk(chunk)
 
     def load_chunk(self, x: int):
         with self._lock:
@@ -205,9 +274,8 @@ class Camera:
 
 class ChunkRenderer:
     chunk_manager: ChunkManager
-    tile_size: int = TILE_SIZE
+    tile_size: int = TILE_SIZE  # FIXED: Removed duplicate declaration
     screen: pygame.Surface
-    tile_size: int = TILE_SIZE  # Changed from 32 to match tile_size
 
     def __init__(self, chunk_manager: ChunkManager, tile_size: int, screen: pygame.Surface):
         self.chunk_manager = chunk_manager
@@ -264,40 +332,51 @@ class ChunkRenderer:
 
 
 
+def world_path(name: str) -> Path:
+    return user_data_path("blocks") / name
+
 class World:
     chunk_manager: ChunkManager
     path: pathlib.Path
-    player_pos: tuple[int, int]
+    player_pos: tuple[float, float] = (0, 0)
     world_data: dict[str, Any]
     def __init__(self, path: pathlib.Path):
         self.chunk_manager = ChunkManager(path)
         self.world_path = path
-        self.camera = Camera()
 
         world_data = path / "world.json"
+        world_data.touch(exist_ok=True)
         with open(world_data, "r") as f:
-            self.world_data = json.load(f)
+            s = f.read()
+            if len(s) == 0:
+                s = "{}"
+            self.world_data = json.loads(s)
 
-    def a(self):
+    def update_chunk_cache(self):
+        min_chunk = int(self.player_pos[0]) // self.chunk_manager.width  - 4
+        max_chunk = int(self.player_pos[0]) // self.chunk_manager.width + 4  # FIXED: Changed from player_pos[1] to player_pos[0]
+        self.chunk_manager.load_chunks_only(range(min_chunk, max_chunk+1))
 
-
-
-
-    def update
 
 if __name__ == "__main__":
-    chunk_manager = ChunkManager()
-    chunk_manager.load_chunk(0)
+
+
 
     pygame.init()
+
+    print("hi")
     screen = pygame.display.set_mode((1280, 720))
     clock = pygame.time.Clock()
     running = True
 
+    path = world_path("world-1")
+    world = World(path)
+    world.update_chunk_cache()
+
     camera = Camera()
     camera.y = 250  # Start near the ground layer
 
-    renderer = ChunkRenderer(chunk_manager, TILE_SIZE, screen)
+    renderer = ChunkRenderer(world.chunk_manager, TILE_SIZE, screen)
 
     camera_speed = 0.5
 
@@ -322,11 +401,16 @@ if __name__ == "__main__":
         if keys[pygame.K_s]:
             camera.y -= camera_speed
 
+        world.player_pos = (camera.x, camera.y)
+
+        world.update_chunk_cache()
+
+
         renderer.render(camera)
 
         pygame.display.flip()
         clock.tick(60)
 
-    # Save world on exit
-    chunk_manager.shutdown()
+    # FIXED: Changed from chunk_manager.shutdown() to world.chunk_manager.shutdown()
+    world.chunk_manager.shutdown()
     pygame.quit()
