@@ -123,7 +123,7 @@ class ChunkManager:
         # Normalize height map to reasonable terrain range
         base_height = 256
         terrain_variation = 40
-        heights = (height_map * terrain_variation + base_height - 20).astype(int)
+        heights = (height_map * terrain_variation + base_height).astype(int)
 
         # Fill terrain based on height map
         for x in range(self.width):
@@ -144,8 +144,8 @@ class ChunkManager:
             if terrain_height < self.height:
                 chunk[x, terrain_height] = 3
 
-            if terrain_height < base_height + 50:
-                chunk[x, terrain_height:(base_height + 50)] = 4
+            if terrain_height < base_height:
+                chunk[x, terrain_height:(base_height)] = 4
 
         return chunk
 

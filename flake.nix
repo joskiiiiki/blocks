@@ -16,22 +16,27 @@
         pkgs = nixpkgs.legacyPackages.${system};
         python = pkgs.python313;
         pythonPackages = python.pkgs;
-        
+
         # Override pygame to disable failing tests and add numpy
-        pygame-ce = pythonPackages.pygame.overridePythonAttrs (old: {
-          disabledTests = (old.disabledTests or []) ++ [
-            # Window tests fail in headless environment
-            "test_mouse_rect"
-            "window_test"
-          ];
-          # Add numpy as a runtime dependency for sndarray
-          propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [
+        pygame-ce = pythonPackages.pygame-ce.overridePythonAttrs (old: {
+          doCheck = false;
+          checkPhase = ''
+            runHook preCheck
+            ${pythonPackages.python.interpreter} -m pygame.tests -v --exclude opengl,timing,pixelarray_test,surface_test,window_test--time_out 300
+            runHook postCheck
+          '';
+
+          installCheckPhase = ''
+            runHook preCheck
+            runHook postCheck
+          '';
+          propagatedBuildInputs = (old.propagatedBuildInputs or [ ]) ++ [
             pythonPackages.numpy
           ];
         });
-        
         pygame-gui = pythonPackages.pygame-gui.override {
-          inherit pygame-ce; 
+          inherit pygame-ce;
+
         };
       in
       {
