@@ -51,6 +51,8 @@
             pythonPackages.platformdirs
             pythonPackages.matplotlib
             pkgs.ty
+            pkgs.pyright
+            pkgs.ruff
           ];
           shellHook = ''
             echo "Pygame development environment loaded"

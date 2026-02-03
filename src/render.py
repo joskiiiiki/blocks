@@ -1,6 +1,8 @@
 import pygame
-import numpy as np
-from world import ChunkManager
+
+from src.blocks import Block
+from src.utils import camera_to_world, world_to_screen
+from src.world import ChunkManager
 
 TILE_SIZE = 32
 COLOR_SKY = pygame.Color(118, 183, 194)
@@ -16,31 +18,31 @@ GRASS_TILE.fill(pygame.Color(31, 105, 55))
 WATER_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
 WATER_TILE.fill(pygame.Color(43, 134, 204, 125))
 
+PX = pygame.Surface((TILE_SIZE // 16, TILE_SIZE // 16))
+PX.fill(pygame.Color(255, 0, 0))
+
 TILES = {
-    0: None,
-    1: STONE_TILE,
-    2: DIRT_TILE,
-    3: GRASS_TILE,
-    4: WATER_TILE
+    Block.AIR.value: None,
+    Block.STONE.value: STONE_TILE,
+    Block.DIRT.value: DIRT_TILE,
+    Block.GRASS.value: GRASS_TILE,
+    Block.WATER.value: WATER_TILE,
 }
-
-def world_to_screen(cam_x: float, cam_y: float, world_x: float, world_y: float) -> tuple[float, float]:
-    return world_x - cam_x, world_y - cam_y
-
-# block coordinates with origin from 0 0
-def screen_to_world(cam_x: float, cam_y: float, sx: float, sy: float) -> tuple[float, float]:
-    return sx + cam_x, sy + cam_y
 
 
 class ChunkRenderer:
     chunk_manager: ChunkManager
     tile_size: int = TILE_SIZE  # FIXED: Removed duplicate declaration
     screen: pygame.Surface
+    font: pygame.Font
 
-    def __init__(self, chunk_manager: ChunkManager, tile_size: int, screen: pygame.Surface):
+    def __init__(
+        self, chunk_manager: ChunkManager, tile_size: int, screen: pygame.Surface
+    ):
         self.chunk_manager = chunk_manager
         self.tile_size = tile_size
         self.screen = screen
+        self.font = pygame.Font(None, 16)
 
     def render(self, cam_x: float, cam_y: float):
         screen_width, screen_height = self.screen.get_size()
@@ -50,8 +52,12 @@ class ChunkRenderer:
         blocks_y = int(screen_height / self.tile_size)
 
         # Calculate world coordinates for screen corners
-        upper_right = screen_to_world(cam_x, cam_y, blocks_x // 2 + 1, blocks_y // 2 + 1)
-        lower_left = screen_to_world(cam_x, cam_y, -blocks_x // 2 - 1, -blocks_y // 2 - 1)
+        upper_right = camera_to_world(
+            cam_x, cam_y, blocks_x // 2 + 1, blocks_y // 2 + 1
+        )
+        lower_left = camera_to_world(
+            cam_x, cam_y, -blocks_x // 2 - 1, -blocks_y // 2 - 1
+        )
 
         min_chunk_x = self.chunk_manager.get_chunk_x(lower_left[0])
         max_chunk_x = self.chunk_manager.get_chunk_x(upper_right[0])
@@ -71,8 +77,12 @@ class ChunkRenderer:
             clip_y_min = int(max(lower_left[1], 0))
             clip_y_max = int(min(upper_right[1], self.chunk_manager.height - 1)) + 1
 
-            range_x = range(max(0, clip_x_min), min(self.chunk_manager.width, clip_x_max))
-            range_y = range(max(0, clip_y_min), min(self.chunk_manager.height, clip_y_max))
+            range_x = range(
+                max(0, clip_x_min), min(self.chunk_manager.width, clip_x_max)
+            )
+            range_y = range(
+                max(0, clip_y_min), min(self.chunk_manager.height, clip_y_max)
+            )
 
             for x in range_x:
                 for y in range_y:
@@ -83,9 +93,23 @@ class ChunkRenderer:
                         world_x = base_x + x
                         world_y = y
 
-                        screen_x, screen_y = world_to_screen(cam_x, cam_y, world_x, world_y)
+                        pixel_x, pixel_y = world_to_screen(
+                            cam_x,
+                            cam_y,
+                            world_x,
+                            world_y,
+                            screen_width,
+                            screen_height,
+                            TILE_SIZE,
+                        )
 
-                        # Convert to pixel coordinates
-                        pixel_x = screen_x * self.tile_size + screen_width // 2
-                        pixel_y = screen_height // 2 - screen_y * self.tile_size
-                        self.screen.blit(tile, (pixel_x, pixel_y))
+                        self.screen.blit(tile, (pixel_x, pixel_y - TILE_SIZE))
+                        self.screen.blit(PX, (pixel_x, pixel_y - TILE_SIZE // 16))
+
+            #             yt = self.font.render(f"{y}", False, (255, 255, 255))
+            #             xt = self.font.render(f"{x}", False, (255, 255, 255))
+
+            #             self.screen.blit(yt, (pixel_x, pixel_y - 14))
+            #             self.screen.blit(xt, (pixel_x, pixel_y - 14 - 16))
+
+            # self.screen.blit(PX, (0, 0))

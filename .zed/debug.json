@@ -1,0 +1,32 @@
+[
+	{
+		"adapter": "Debugpy",
+		"label": "Debug main.py (module)",
+		"request": "launch",
+		"python": "python",
+		"module": "src.main",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT"
+	},
+	{
+		"adapter": "Debugpy",
+		"label": "Debug intersection.py (module)",
+		"request": "launch",
+		"python": "python",
+		"module": "tests.intersection",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT"
+	},
+	{
+		"adapter": "Debugpy",
+		"label": "Debug Current File",
+		"request": "launch",
+		"python": "$ZED_CUSTOM_PYTHON_ACTIVE_ZED_TOOLCHAIN",
+		"args": [],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"program": "$ZED_FILE",
+		"env": {
+			"PYTHONPATH": "$ZED_WORKTREE_ROOT"
+		}
+	}
+]

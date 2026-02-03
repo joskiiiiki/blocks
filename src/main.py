@@ -1,21 +1,14 @@
-import render
-from player import Player
-from render import ChunkRenderer
-from world import World, world_path
-import platformdirs
-import json
-import os
-import pathlib
-import threading
-import queue
-from collections.abc import Iterable
-import pygame
-from datetime import datetime
 from pathlib import Path
-from platformdirs import user_data_path
-from typing import TypeAlias, Self, TypeVar, Literal, Optional, Any
-import numpy as np
-from numpy.typing import NDArray
+
+import pygame
+
+from src import render
+from src.player import Player
+from src.render import ChunkRenderer
+from src.world import World, world_path
+
+FONT_SIZE = 24
+
 
 class Game:
     framerate = 60
@@ -26,14 +19,22 @@ class Game:
     player: Player
     clock: pygame.time.Clock
     running: bool = False
+    font: pygame.Font
 
     def __init__(self, world_path: Path):
         pygame.init()
         self.world = World(world_path)
-        self.screen = pygame.display.set_mode((1280, 720))
-        self.chunk_render = ChunkRenderer(self.world.chunk_manager, self.tile_size, self.screen)
-        self.player = Player(x=0, y=512)
+        self.screen = pygame.display.set_mode(
+            (1280, 720), flags=pygame.SRCALPHA | pygame.RESIZABLE
+        )
+        self.chunk_render = ChunkRenderer(
+            self.world.chunk_manager, self.tile_size, self.screen
+        )
+        self.player = Player(
+            x=0, y=300, world=self.world, screen=self.screen, delta_t=1 / self.framerate
+        )
         self.clock = pygame.time.Clock()
+        self.font = pygame.Font(None, FONT_SIZE)
 
     def main(self):
         self.world.update_chunk_cache()
@@ -43,18 +44,20 @@ class Game:
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    running = False
+                    self.running = False
 
             keys = pygame.key.get_pressed()
             if keys[pygame.K_ESCAPE]:
-                running = False
+                self.running = False
 
             new_x, new_y = self.player.update()
-            # self.world.chunk_manager.check_collision(new_x, new_y)
-
-
-
-            print(f"x:{self.player.x} y:{self.player.y}")
+            intersect = self.world.chunk_manager.intersect(
+                self.player.x, self.player.y, new_x, new_y
+            )
+            if intersect:
+                self.player.handle_intersection(intersect)
+            else:
+                self.player.set_position(new_x, new_y)
 
             self.world.player_pos = (self.player.x, self.player.y)
 
@@ -62,21 +65,21 @@ class Game:
 
             self.chunk_render.render(self.player.x, self.player.y)
 
-            self.player.draw(self.screen)
+            self.player.draw()
 
+            fps = self.clock.get_fps()
+            fps_text = self.font.render(f"FPS: {fps:.1f}", True, (255, 255, 255))
+            self.screen.blit(fps_text, (10, 10))
+            coords_text = self.font.render(
+                f"X={self.player.x:.1f} Y={self.player.y:.1f}", True, (255, 255, 255)
+            )
+            self.screen.blit(coords_text, (10, 10 + FONT_SIZE * 1.1))
             pygame.display.flip()
             self.clock.tick(self.framerate)
 
     def on_exit(self):
         self.world.chunk_manager.shutdown()
         pygame.quit()
-
-
-
-
-
-
-
 
 
 if __name__ == "__main__":
