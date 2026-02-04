@@ -50,6 +50,7 @@
             pythonPackages.setuptools
             pythonPackages.platformdirs
             pythonPackages.matplotlib
+            pythonPackages.pytest
             pkgs.ty
             pkgs.pyright
             pkgs.ruff

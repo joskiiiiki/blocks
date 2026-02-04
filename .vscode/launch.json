@@ -1,0 +1,10 @@
+{
+    "configurations": [
+        {
+            "name": "Launch",
+            "type": "debugpy",
+            "module": "src.main",
+            "console": "integratedTerminal"
+        }
+    ]
+}

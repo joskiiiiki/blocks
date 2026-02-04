@@ -1,38 +1,16 @@
 import pygame
 
-from src.blocks import Block
+from src import assets, blocks
 from src.utils import camera_to_world, world_to_screen
 from src.world import ChunkManager
 
-TILE_SIZE = 32
-COLOR_SKY = pygame.Color(118, 183, 194)
-STONE_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
-STONE_TILE.fill(pygame.Color(100, 100, 100))
-
-DIRT_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
-DIRT_TILE.fill(pygame.Color(64, 43, 26))
-
-GRASS_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
-GRASS_TILE.fill(pygame.Color(31, 105, 55))
-
-WATER_TILE = pygame.Surface((TILE_SIZE, TILE_SIZE))
-WATER_TILE.fill(pygame.Color(43, 134, 204, 125))
-
-PX = pygame.Surface((TILE_SIZE // 16, TILE_SIZE // 16))
-PX.fill(pygame.Color(255, 0, 0))
-
-TILES = {
-    Block.AIR.value: None,
-    Block.STONE.value: STONE_TILE,
-    Block.DIRT.value: DIRT_TILE,
-    Block.GRASS.value: GRASS_TILE,
-    Block.WATER.value: WATER_TILE,
-}
+PX = pygame.Surface((assets.TILE_SIZE // 16, assets.TILE_SIZE // 16))
+PX.fill((255, 255, 0))
 
 
 class ChunkRenderer:
     chunk_manager: ChunkManager
-    tile_size: int = TILE_SIZE  # FIXED: Removed duplicate declaration
+    tile_size: int = assets.TILE_SIZE  # FIXED: Removed duplicate declaration
     screen: pygame.Surface
     font: pygame.Font
 
@@ -87,7 +65,7 @@ class ChunkRenderer:
             for x in range_x:
                 for y in range_y:
                     tile_idx = chunk[x, y]
-                    tile = TILES.get(tile_idx)
+                    tile = blocks.BLOCK_TEXTURES.get(tile_idx)
 
                     if tile is not None:
                         world_x = base_x + x
@@ -100,11 +78,12 @@ class ChunkRenderer:
                             world_y,
                             screen_width,
                             screen_height,
-                            TILE_SIZE,
+                            assets.TILE_SIZE,
                         )
 
-                        self.screen.blit(tile, (pixel_x, pixel_y - TILE_SIZE))
-                        self.screen.blit(PX, (pixel_x, pixel_y - TILE_SIZE // 16))
+                        self.screen.blit(tile, (pixel_x, pixel_y - assets.TILE_SIZE))
+
+                        self.screen.blit(PX, (pixel_x, pixel_y - PX.height))
 
             #             yt = self.font.render(f"{y}", False, (255, 255, 255))
             #             xt = self.font.render(f"{x}", False, (255, 255, 255))

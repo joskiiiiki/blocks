@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pygame
 
-from src import render
+from src import assets
 from src.player import Player
 from src.render import ChunkRenderer
 from src.world import World, world_path
@@ -40,7 +40,7 @@ class Game:
         self.world.update_chunk_cache()
         self.running = True
         while self.running:
-            self.screen.fill(render.COLOR_SKY)
+            self.screen.fill(assets.COLOR_SKY)
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -71,7 +71,7 @@ class Game:
             fps_text = self.font.render(f"FPS: {fps:.1f}", True, (255, 255, 255))
             self.screen.blit(fps_text, (10, 10))
             coords_text = self.font.render(
-                f"X={self.player.x:.1f} Y={self.player.y:.1f}", True, (255, 255, 255)
+                f"X={self.player.x:.10f} Y={self.player.y:.10f}", True, (255, 255, 255)
             )
             self.screen.blit(coords_text, (10, 10 + FONT_SIZE * 1.1))
             pygame.display.flip()

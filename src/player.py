@@ -1,10 +1,10 @@
 import math
 from typing import Optional
 
-import numpy as np
 import pygame
 
-from src.render import TILE_SIZE
+from src.assets import TILE_SIZE
+from src.inventory import Hotbar, Inventory
 from src.utils import screen_to_world, world_to_screen
 from src.world import (
     IntersectionContext,
@@ -19,15 +19,6 @@ PX.fill((0, 255, 255))
 
 BLOCK_SELECTION = pygame.Surface((32, 32), flags=pygame.SRCALPHA)
 BLOCK_SELECTION.fill(pygame.Color(255, 255, 255, 255 // 5))
-
-INTERSECTION_ORTHOGONAL_INDICATOR = pygame.Surface((4, 4))
-INTERSECTION_ORTHOGONAL_INDICATOR.fill((255, 255, 0))
-
-INTERSECTION_DIAGONAL_HOR_INDICATOR = pygame.Surface((4, 4))
-INTERSECTION_DIAGONAL_HOR_INDICATOR.fill((255, 0, 255))
-
-INTERSECTION_DIAGONAL_VER_INDICATOR = pygame.Surface((4, 4))
-INTERSECTION_DIAGONAL_VER_INDICATOR.fill((0, 255, 255))
 
 
 class Player:
@@ -47,6 +38,8 @@ class Player:
     cursor_position: tuple[int, int] = (0, 0)
     cursor_position_world: tuple[float, float] = (0.0, 0.0)
     world: World
+    inventory: Inventory = Inventory()
+    hotbar: Hotbar
 
     _intersections: list[IntersectionContext] = []
 
@@ -64,6 +57,7 @@ class Player:
             self.delta_t = delta_t
 
         self.screen = screen
+        self.hotbar = Hotbar(self.screen)
         self.world = world
 
     def handle_input(self) -> None:
@@ -94,6 +88,11 @@ class Player:
             self.slide_timer = 20
             self.vel_x *= 2
 
+        if keys[pygame.K_c]:
+            self._intersections.clear()
+
+        self.hotbar.handle_keys(keys)
+
         mouse_left, mouse_middle, mouse_right = pygame.mouse.get_pressed()
         self.cursor_position = pygame.mouse.get_pos()
 
@@ -107,16 +106,41 @@ class Player:
             TILE_SIZE,
         )
         if mouse_right:
-            self.world.set_block(
-                self.cursor_position_world[0],
-                self.cursor_position_world[1],
-                np.uint32(1),
-            )
+            self.handle_right_click()
+
+        elif mouse_left:
+            self.handle_left_click()
 
     def apply_gravity(self) -> None:
         # if self.on_ground:
         #     return
         self.vel_y += self.gravity * self.delta_t
+
+    def handle_left_click(self) -> None:
+        block = self.world.destroy_block(
+            self.cursor_position_world[0],
+            self.cursor_position_world[1],
+        )
+        if not block:
+            return
+        item = block.get_item()
+        if item:
+            self.inventory.add_stack((item, 1))
+
+    def handle_right_click(self) -> None:
+        item = self.inventory.get_slot(self.hotbar.selected_slot)
+        if not item:
+            return
+        block = item[0].get_block()
+
+        if block:
+            was_set = self.world.set_block(
+                self.cursor_position_world[0],
+                self.cursor_position_world[1],
+                block,
+            )
+            if was_set:
+                self.inventory.increment_slot_count(self.hotbar.selected_slot, -1)
 
     def update(self) -> tuple[float, float]:
         self.handle_input()
@@ -135,24 +159,68 @@ class Player:
         self.x = x
         self.y = y
 
-    def handle_intersection(self, context: IntersectionContext):
-        # self._intersections.append(context)
-        _, direction, x, y, _ = context
+    def set_position_tuple(self, position: tuple[float, float]) -> None:
+        self.x, self.y = position
 
-        match direction:
-            case IntersectionDirection.DOWN:
-                self.on_ground = True
-                self.vel_y = 0
-                self.set_position(x, y)
-            case IntersectionDirection.UP:
-                self.vel_y = 0
-                self.set_position(x, y)
-            case IntersectionDirection.LEFT:
+    def handle_intersection(self, primary_ctx: IntersectionContext):
+        self._intersections.append(primary_ctx)
+
+        match primary_ctx.type:
+            case IntersectionType.ORTHOGONAL_X:
+                print("ort x")
                 self.vel_x = 0
-                self.set_position(x, y)
-            case IntersectionDirection.RIGHT:
+                xs, ys = primary_ctx.start
+                xi, yi = primary_ctx.intersect
+                dir_x = primary_ctx.direction.vector[0]
+
+                self.set_position(xi - dir_x / 10000, yi)
+            case IntersectionType.ORTHOGONAL_Y:
+                self.vel_y = 0
+                xs, ys = primary_ctx.start
+                xi, yi = primary_ctx.intersect
+                dir_y = primary_ctx.direction.vector[1]
+
+                self.set_position(xi, yi - dir_y / 10000)
+                if primary_ctx.direction == IntersectionDirection.DOWN:
+                    self.on_ground = True
+
+            case IntersectionType.DIAGONAL_HORIZONTAL:
+                print("dig hor")
+                self.vel_y = 0
+
+                secondary_ctx = primary_ctx.next
+                xs, ys = primary_ctx.start
+                xi, yi = primary_ctx.intersect
+                xe, ye = primary_ctx.end
+                dir_y = primary_ctx.direction.vector[1]
+
+                if secondary_ctx:
+                    xis, yis = secondary_ctx.intersect
+                    dir_x = secondary_ctx.direction.vector[0]
+                    print(xis, yis)
+                    self.set_position(xis - dir_x / 10000, yi - dir_y / 10000)
+                    self.vel_x = 0
+                else:
+                    self.set_position(xe, yi - dir_y / 10000)
+
+            case IntersectionType.DIAGONAL_VERTICAL:
+                print("dig vert")
                 self.vel_x = 0
-                self.set_position(x, y)
+
+                secondary_ctx = primary_ctx.next
+                xs, ys = primary_ctx.start
+                xi, yi = primary_ctx.intersect
+                xe, ye = primary_ctx.end
+                dir_x = primary_ctx.direction.vector[0]
+
+                if secondary_ctx:
+                    print(f"sec vert {secondary_ctx.intersect}")
+                    xis, yis = secondary_ctx.intersect
+                    dir_y = secondary_ctx.direction.vector[1]
+                    self.set_position(xi - dir_x / 10000, yis - dir_y / 10000)
+                    self.vel_y = 0
+                else:
+                    self.set_position(xi - dir_x / 10000, ye)
 
     def draw(self) -> None:
         x = self.screen.width // 2 - 16
@@ -180,18 +248,56 @@ class Player:
             special_flags=pygame.BLEND_ALPHA_SDL2,
         )
 
-        # for _, _, x, y, type in self._intersections:
-        #     screen_x, screen_y = world_to_screen(
-        #         self.x, self.y, x, y, self.screen.width, self.screen.height, TILE_SIZE
-        #     )
-        #     match type:
-        #         case IntersectionType.ORTHOGONAL_X | IntersectionType.ORTHOGONAL_Y:
-        #             pass
-        #         case IntersectionType.DIAGONAL_HORIZONTAL:
-        #             self.screen.blit(
-        #                 INTERSECTION_DIAGONAL_HOR_INDICATOR, (screen_x, screen_y)
-        #             )
-        #         case IntersectionType.DIAGONAL_VERTICAL:
-        #             self.screen.blit(
-        #                 INTERSECTION_DIAGONAL_VER_INDICATOR, (screen_x, screen_y)
-        #             )
+        self.hotbar.draw(self.screen, self.inventory.get_hotbar_slots())
+
+        for index, intersection in enumerate(self._intersections):
+            screen_start_x, screen_start_y = world_to_screen(
+                self.x,
+                self.y,
+                intersection.start[0],
+                intersection.start[1],
+                self.screen.width,
+                self.screen.height,
+                TILE_SIZE,
+            )
+
+            pygame.draw.circle(
+                self.screen, (255, 0, 0), (screen_start_x, screen_start_y), 1
+            )
+
+            screen_end_x, screen_end_y = world_to_screen(
+                self.x,
+                self.y,
+                intersection.end[0],
+                intersection.end[1],
+                self.screen.width,
+                self.screen.height,
+                TILE_SIZE,
+            )
+
+            pygame.draw.line(
+                self.screen,
+                (255, 0, 0),
+                (screen_start_x, screen_start_y),
+                (screen_end_x, screen_end_y),
+                2,
+            )
+
+            if intersection.next:
+                screen_next_x, screen_next_y = world_to_screen(
+                    self.x,
+                    self.y,
+                    intersection.next.end[0],
+                    intersection.next.end[1],
+                    self.screen.width,
+                    self.screen.height,
+                    TILE_SIZE,
+                )
+
+                pygame.draw.line(
+                    self.screen,
+                    (0, 255, 255),
+                    (screen_end_x, screen_end_y),
+                    (screen_next_x, screen_next_y),
+                    2,
+                )

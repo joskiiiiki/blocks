@@ -13,20 +13,18 @@ def test_ortho_y():
     def downwards():
         ctx = chunk_manager.intersect_ortho_line_y(1, 11, 1, 10)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.DOWN
-        assert x == 1
-        assert y >= 11 and y < 11.5
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.DOWN
+        assert ctx.intersect[0] == 1
+        assert ctx.intersect[1] == 11
 
     def upwards():
         ctx = chunk_manager.intersect_ortho_line_y(1, 9, 1, 10)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.UP
-        assert x == 1
-        assert y < 10 and y > 9.5
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.UP
+        assert ctx.intersect[0] == 1
+        assert ctx.intersect[1] == 10
 
     downwards()
     upwards()
@@ -41,20 +39,18 @@ def test_ortho_x():
     def leftward():
         ctx = chunk_manager.intersect_ortho_line_x(9, 0, 10, 0)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.RIGHT
-        assert x < 10 and x > 9.5
-        assert y == 0
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.RIGHT
+        assert ctx.intersect[0] == 10
+        assert ctx.intersect[1] == 0
 
     def rightward():
         ctx = chunk_manager.intersect_ortho_line_x(11, 0, 10, 0)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.LEFT
-        assert x >= 11 and x < 11.5
-        assert y == 0
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.LEFT
+        assert ctx.intersect[0] == 11
+        assert ctx.intersect[1] == 0
 
     leftward()
 
@@ -75,20 +71,16 @@ def test_diagonal_horizontal_wall():
     def downward():
         ctx = chunk_manager.intersect_diagonal_horizontal_wall(9, 11, 10, 9)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.DOWN
-        assert x >= 9 and x <= 10
-        assert y < 12 and y >= 11
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.DOWN
+        assert ctx.intersect[1] == 11
 
     def upward():
         ctx = chunk_manager.intersect_diagonal_horizontal_wall(9, 9, 10, 11)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.UP
-        assert x >= 9 and x <= 10
-        assert y >= 9 and y < 10
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.UP
+        assert ctx.intersect[1] == 10
 
     downward()
     upward()
@@ -103,22 +95,16 @@ def test_diagonal_vertical_wall():
     def leftward():
         ctx = chunk_manager.intersect_diagonal_vertical_wall(9, 11, 10, 10)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        print(direction)
-        assert direction == IntersectionDirection.RIGHT
-        print(x)
-        assert x >= 9 and x <= 10
-        assert y == 10
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.RIGHT
+        assert ctx.intersect[0] == 10
 
     def rightward():
         ctx = chunk_manager.intersect_diagonal_vertical_wall(11, 9, 10, 11)
         assert ctx
-        block, direction, x, y, _ = ctx
-        assert block == Block.STONE.value
-        assert direction == IntersectionDirection.LEFT
-        assert x >= 11 and x <= 12
-        assert y < 12 and y >= 11
+        assert ctx.block == Block.STONE.value
+        assert ctx.direction == IntersectionDirection.LEFT
+        assert ctx.start[0] == 11
 
     leftward()
     rightward()

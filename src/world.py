@@ -7,21 +7,27 @@ import threading
 from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, TypeAlias
+from typing import Any, Literal, Optional, TypeAlias
 
 import numpy as np
 import pygame
 from numpy.typing import NDArray
 from platformdirs import user_data_path
 
-from src.blocks import BlockData, is_collidable
+from src.blocks import Block, BlockData, is_collidable
 
 
 class IntersectionDirection(Enum):
-    UP = 0
-    DOWN = 1
-    LEFT = 2
-    RIGHT = 3
+    """Enum representing the direction of an intersected surface"""
+
+    UP = (0, 1)
+    DOWN = (0, -1)
+    LEFT = (-1, 0)
+    RIGHT = (1, 0)
+
+    @property
+    def vector(self) -> tuple[Literal[0, 1], Literal[0, 1]]:
+        return self.value
 
 
 class IntersectionType(Enum):
@@ -31,10 +37,35 @@ class IntersectionType(Enum):
     DIAGONAL_VERTICAL = 3
 
 
+class IntersectionContext:
+    block: BlockData
+    direction: IntersectionDirection
+    start: tuple[float, float]
+    intersect: tuple[float, float]
+    end: tuple[float, float]
+    type: IntersectionType
+    next: Optional["IntersectionContext"] = None
+
+    def __init__(
+        self,
+        block: BlockData,
+        direction: IntersectionDirection,
+        start: tuple[float, float],
+        intersect: tuple[float, float],
+        end: tuple[float, float],
+        type: IntersectionType,
+        next: Optional["IntersectionContext"] = None,
+    ):
+        self.block = block
+        self.direction = direction
+        self.start = start
+        self.end = end
+        self.intersect = intersect
+        self.type = type
+        self.next = next
+
+
 Chunk: TypeAlias = NDArray[BlockData]
-IntersectionContext: TypeAlias = tuple[
-    BlockData, IntersectionDirection, float, float, IntersectionType
-]
 
 
 def world_path(name: str) -> Path:
@@ -300,7 +331,26 @@ class ChunkManager:
 
         return chunk_x, chunk_local_x, y
 
-    def set_block(self, x: float, y: float, block: BlockData) -> bool:
+    def set_block(
+        self, x: float, y: float, block: BlockData, allow_replace: bool = False
+    ) -> bool:
+        """
+        Set the block at the given coordinates.
+
+        Parameters
+        ----------
+        x : float
+            The x-coordinate in world space.
+        y : float
+            The y-coordinate in world space.
+        block : BlockData
+            The block data to set.
+
+        Returns
+        -------
+        bool
+            True if the block was set successfully, False otherwise.
+        """
         coords = self.world_to_chunk(x, y)
         if coords is None:
             return False
@@ -315,9 +365,47 @@ class ChunkManager:
         y = int(math.floor(y))
 
         with self._lock:
+            if not allow_replace and chunk[x, y] != Block.AIR.value:
+                return False
+
             chunk[x, y] = block
 
         return True
+
+    def destroy_block(self, x: float, y: float) -> BlockData | None:
+        """
+        Destroy the block at the given coordinates. (replaces with AIR)
+
+        Parameters
+        ----------
+        x : float
+            The x-coordinate in world space.
+        y : float
+            The y-coordinate in world space.
+
+        Returns
+        -------
+        Block | None
+            The block that was destroyed, or None if the block was not destroyed.
+        """
+        coords = self.world_to_chunk(x, y)
+        if coords is None:
+            return None
+
+        chunk_x, chunk_local_x, chunk_local_y = coords
+
+        chunk = self.get_chunk_from_cache(chunk_x)
+        if chunk is None:
+            return None
+
+        x = int(math.floor(chunk_local_x))
+        y = int(math.floor(y))
+
+        with self._lock:
+            block = chunk[x, y]
+            chunk[x, y] = Block.AIR.value
+
+        return block
 
     def shutdown(self):
         print("Shutting down ChunkManager ...")
@@ -358,12 +446,13 @@ class ChunkManager:
                     if y_step < 0
                     else IntersectionDirection.UP
                 )
-                return (
-                    block,
-                    direction,
-                    x1,
-                    y + y_offset - y_step / 10000,
-                    IntersectionType.ORTHOGONAL_Y,
+                return IntersectionContext(
+                    block=block,
+                    direction=direction,
+                    start=(x0, y0),
+                    intersect=(x1, y + y_offset),
+                    end=(x1, y1),
+                    type=IntersectionType.ORTHOGONAL_Y,
                 )
 
         return None
@@ -391,15 +480,14 @@ class ChunkManager:
                     else IntersectionDirection.RIGHT
                 )
 
-                intersection = (
-                    block,
-                    direction,
-                    x + x_offset - x_step / 10000,
-                    y1,
-                    IntersectionType.ORTHOGONAL_X,
-                )  # lazy fix avoid stepping into next block
-
-                return intersection
+                return IntersectionContext(
+                    block=block,
+                    direction=direction,
+                    start=(x0, y0),
+                    end=(x1, y1),
+                    intersect=(x + x_offset, y1),
+                    type=IntersectionType.ORTHOGONAL_X,
+                )
 
         return None
 
@@ -429,12 +517,13 @@ class ChunkManager:
                     else IntersectionDirection.UP
                 )
 
-                return (
-                    block,
-                    direction,
-                    x,
-                    y + y_offset - y_step / 10000,
-                    IntersectionType.DIAGONAL_HORIZONTAL,
+                return IntersectionContext(
+                    block=block,
+                    direction=direction,
+                    start=(x0, y0),
+                    intersect=(x, y + y_offset),
+                    end=(x1, y1),
+                    type=IntersectionType.DIAGONAL_HORIZONTAL,
                 )
 
         return None
@@ -465,17 +554,65 @@ class ChunkManager:
                     else IntersectionDirection.RIGHT
                 )
 
-                intersection = (
-                    block,
-                    direction,
-                    x + x_offset - x_step / 10000,
-                    y,
-                    IntersectionType.DIAGONAL_VERTICAL,
+                return IntersectionContext(
+                    block=block,
+                    direction=direction,
+                    start=(x0, y0),
+                    intersect=(x + x_offset, y),
+                    end=(x1, y1),
+                    type=IntersectionType.DIAGONAL_VERTICAL,
                 )
 
-                return intersection
-
         return None
+
+    def handle_corner(self, ctx_x: IntersectionContext, ctx_y: IntersectionContext):
+        # lower_right
+        corner_x = int(ctx_x.intersect[0])
+        corner_y = int(ctx_y.intersect[1])
+
+        upper_left = self.get_block(corner_x - 1, corner_y + 1)
+        upper_right = self.get_block(corner_x, corner_y + 1)
+        lower_left = self.get_block(corner_x - 1, corner_y)
+        lower_right = self.get_block(corner_x, corner_y)
+
+        upper_left_ic = is_collidable(upper_left) if upper_left else False
+        upper_right_ic = is_collidable(upper_right) if upper_right else False
+        lower_left_ic = is_collidable(lower_left) if lower_left else False
+        lower_right_ic = is_collidable(lower_right) if lower_right else False
+
+        match (ctx_x.direction, ctx_y.direction):
+            case (IntersectionDirection.RIGHT, IntersectionDirection.DOWN):
+                # p X
+                # X -
+                match (upper_right_ic, lower_left_ic):
+                    case (True, True):
+                        return ctx_x  # thats the case that works nomatter how
+                    case (True, False):
+                        return ctx_x  # collision with vertical wall
+                    case (False, True):
+                        return ctx_y  # collision with horizontal wall
+                    case (False, False):
+                        return ctx_y  # collision with corner use ctx_y since we are less likely then to fall through the ground?
+            case (IntersectionDirection.RIGHT, IntersectionDirection.UP):
+                # X -
+                # p X
+                return ctx_x  # can just fall down here
+            case (IntersectionDirection.LEFT, IntersectionDirection.DOWN):
+                # X p
+                # - X
+                match (upper_left_ic, lower_right_ic):
+                    case (True, True):
+                        return ctx_y  # thats the case that works nomatter how
+                    case (True, False):
+                        return ctx_x  # collision with vertical wall
+                    case (False, True):
+                        return ctx_y  # collision with horizontal wall
+                    case (False, False):
+                        return ctx_y  # collision with corner use ctx_y since we are less likely then to fall through the ground
+            case (IntersectionDirection.LEFT, IntersectionDirection.UP):
+                # - X
+                # X p
+                return ctx_x  # well you can just fall down here nomatter what
 
     def intersect(
         self, x0: float, y0: float, x1: float, y1: float
@@ -526,49 +663,55 @@ class ChunkManager:
             return self.intersect_ortho_line_x(x0, y0, x1, y1)
 
         y_intersect = self.intersect_diagonal_horizontal_wall(x0, y0, x1, y1)
-        continued_y_intersect = None
 
         if y_intersect:
-            continued_y_intersect = self.intersect_ortho_line_x(
-                y_intersect[2], y_intersect[3], x1, y_intersect[3]
+            y_intersect.next = self.intersect_ortho_line_x(
+                y_intersect.intersect[0],
+                y_intersect.intersect[1] - y_intersect.direction.vector[1] / 10000,
+                x1,
+                y_intersect.intersect[1] - y_intersect.direction.vector[1] / 10000,
             )
 
         x_intersect = self.intersect_diagonal_vertical_wall(x0, y0, x1, y1)
 
-        continued_x_intersect = None
-
         if x_intersect:
-            continued_x_intersect = self.intersect_ortho_line_y(
-                x_intersect[2], x_intersect[3], x_intersect[2], y1
+            x_intersect.next = self.intersect_ortho_line_y(
+                x_intersect.intersect[0] - x_intersect.direction.vector[0] / 10000,
+                x_intersect.intersect[1],
+                x_intersect.intersect[0] - x_intersect.direction.vector[0] / 10000,
+                y1,
             )
 
         if not x_intersect and not y_intersect:
             return None
-        elif not x_intersect:
-            if continued_y_intersect:
-                return continued_y_intersect
-            block, dir, _, y, type = y_intersect  # ty:ignore[not-iterable]
-            return block, dir, x1, y, type
-        elif not y_intersect:
-            if continued_x_intersect:
-                return continued_x_intersect
-            block, dir, x, _, type = x_intersect
-            return block, dir, x, y1, type
 
-        y_dist = math.sqrt((y_intersect[2] - x0) ** 2 + (y_intersect[3] - y0) ** 2)
-        x_dist = math.sqrt((x_intersect[2] - x0) ** 2 + (x_intersect[3] - y0) ** 2)
+        elif not x_intersect:
+            return y_intersect
+
+        elif not y_intersect:
+            return x_intersect
+
+        y_intersect_dx = y_intersect.intersect[0] - x0
+        y_intersect_dy = y_intersect.intersect[1] - y0
+
+        x_intersect_dx = x_intersect.intersect[0] - x0
+        x_intersect_dy = x_intersect.intersect[1] - y0
+
+        print(f"yi: {y_intersect_dx}, {y_intersect_dy}")
+        print(f"xi: {x_intersect_dx}, {x_intersect_dy}")
+
+        y_dist = math.sqrt(y_intersect_dx**2 + y_intersect_dy**2)
+
+        x_dist = math.sqrt(x_intersect_dx**2 + x_intersect_dy**2)
 
         # If y-intersection happens first or at the same time, prioritize it
-        if y_dist <= x_dist:
-            if continued_y_intersect:
-                return continued_y_intersect
-            block, dir, _, y, type = y_intersect
-            return block, dir, x1, y, type
+        print((y_dist - x_dist))
+        if math.fabs(y_dist - x_dist) < 0.06:
+            return self.handle_corner(x_intersect, y_intersect)
+        elif y_dist < x_dist:
+            return y_intersect
         else:
-            if continued_x_intersect:
-                return continued_x_intersect
-            block, dir, x, _, type = x_intersect
-            return block, dir, x, y1, type
+            return x_intersect
 
     def get_block(self, x: float, y: float) -> BlockData | None:
         coords = self.world_to_chunk(x, y)
@@ -614,5 +757,8 @@ class World:
         )  # FIXED: Changed from player_pos[1] to player_pos[0]
         self.chunk_manager.load_chunks_only(range(min_chunk, max_chunk + 1))
 
-    def set_block(self, x: float, y: float, block: BlockData) -> bool:
-        return self.chunk_manager.set_block(x, y, block)
+    def set_block(self, x: float, y: float, block: Block) -> bool:
+        return self.chunk_manager.set_block(x, y, block.value)
+
+    def destroy_block(self, x: float, y: float) -> Block | None:
+        return Block(self.chunk_manager.destroy_block(x, y))
