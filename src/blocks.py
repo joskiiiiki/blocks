@@ -67,7 +67,7 @@ def get_block_id_checked(block_data: BlockData) -> Block:
     return Block(block_id) if block_id in Block else Block.UNKNOWN
 
 
-def is_collidable(block_data: BlockData) -> bool:
+def is_solid(block_data: BlockData) -> bool:
     """
     Checks if the block is collidable
 

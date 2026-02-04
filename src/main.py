@@ -31,7 +31,7 @@ class Game:
             self.world.chunk_manager, self.tile_size, self.screen
         )
         self.player = Player(
-            x=0, y=300, world=self.world, screen=self.screen, delta_t=1 / self.framerate
+            x=2, y=260, world=self.world, screen=self.screen, delta_t=1 / self.framerate
         )
         self.clock = pygame.time.Clock()
         self.font = pygame.Font(None, FONT_SIZE)
@@ -50,16 +50,8 @@ class Game:
             if keys[pygame.K_ESCAPE]:
                 self.running = False
 
-            new_x, new_y = self.player.update()
-            intersect = self.world.chunk_manager.intersect(
-                self.player.x, self.player.y, new_x, new_y
-            )
-            if intersect:
-                self.player.handle_intersection(intersect)
-            else:
-                self.player.set_position(new_x, new_y)
-
-            self.world.player_pos = (self.player.x, self.player.y)
+            self.player.update()
+            self.world.player_pos = self.player.xy
 
             self.world.update_chunk_cache()
 

@@ -14,7 +14,7 @@ import pygame
 from numpy.typing import NDArray
 from platformdirs import user_data_path
 
-from src.blocks import Block, BlockData, is_collidable
+from src.blocks import Block, BlockData, is_solid
 
 
 class IntersectionDirection(Enum):
@@ -421,298 +421,6 @@ class ChunkManager:
         else:
             print("Save thread terminated successfully")
 
-    def intersect_ortho_line_y(
-        self, x0: float, y0: float, x1: float, y1: float
-    ) -> Optional[IntersectionContext]:
-        x0n: int = math.floor(x0)
-        # x1n: int = math.floor(x1)
-        y0n: int = math.floor(y0)
-        y1n: int = math.floor(y1)
-
-        if y1n == 258 and y0n == 257:
-            pass
-
-        y_step = 1 if y1 > y0 else -1
-        y_offset = 1 if y1 < y0 else 0
-        for y in range(y0n + y_step, y1n + y_step, y_step):
-            block = self.get_block(x0n, y)
-
-            # When going down (y_step < 0), check the block below the boundary
-            # When going up (y_step > 0), check the block above the boundary
-            if block and is_collidable(block):
-                # x1 to retain y momentum
-                direction = (
-                    IntersectionDirection.DOWN
-                    if y_step < 0
-                    else IntersectionDirection.UP
-                )
-                return IntersectionContext(
-                    block=block,
-                    direction=direction,
-                    start=(x0, y0),
-                    intersect=(x1, y + y_offset),
-                    end=(x1, y1),
-                    type=IntersectionType.ORTHOGONAL_Y,
-                )
-
-        return None
-
-    def intersect_ortho_line_x(
-        self, x0: float, y0: float, x1: float, y1: float
-    ) -> Optional[IntersectionContext]:
-        x0n = math.floor(x0)
-        x1n = math.floor(x1)
-        y0n = math.floor(y0)
-        # y1n = math.floor(y1)
-        x_step = 1 if x1 > x0 else -1
-        x_offset = 1 if x1 < x0 else 0
-
-        for x in range(x0n - x_offset, x1n + x_step, x_step):
-            block = self.get_block(x, y0n)
-
-            # When going down (y_step < 0), check the block below the boundary
-            # When going up (y_step > 0), check the block above the boundary
-            if block and is_collidable(block):
-                # x1 to retain y momentum
-                direction = (
-                    IntersectionDirection.LEFT
-                    if x_step < 0
-                    else IntersectionDirection.RIGHT
-                )
-
-                return IntersectionContext(
-                    block=block,
-                    direction=direction,
-                    start=(x0, y0),
-                    end=(x1, y1),
-                    intersect=(x + x_offset, y1),
-                    type=IntersectionType.ORTHOGONAL_X,
-                )
-
-        return None
-
-    def intersect_diagonal_horizontal_wall(
-        self, x0: float, y0: float, x1: float, y1: float
-    ) -> Optional[IntersectionContext]:
-        y0n = int(math.floor(y0))
-        y1n = int(math.floor(y1))
-
-        dy = y1 - y0
-        dx = x1 - x0
-        y_step = 1 if dy >= 0 else -1
-        y_offset = 1 if y1 < y0 else 0
-
-        m = dx / dy
-
-        for y in range(y0n + y_step, y1n + y_step, y_step):
-            # block offset due to rendering... 256.5 is in 257 for example FIXME PLEASE
-            x = m * (y - y0 - y_step) + x0
-
-            block = self.get_block(x, y)
-
-            if block and is_collidable(block):
-                direction = (
-                    IntersectionDirection.DOWN
-                    if y_step < 0
-                    else IntersectionDirection.UP
-                )
-
-                return IntersectionContext(
-                    block=block,
-                    direction=direction,
-                    start=(x0, y0),
-                    intersect=(x, y + y_offset),
-                    end=(x1, y1),
-                    type=IntersectionType.DIAGONAL_HORIZONTAL,
-                )
-
-        return None
-
-    def intersect_diagonal_vertical_wall(
-        self, x0: float, y0: float, x1: float, y1: float
-    ) -> Optional[IntersectionContext]:
-        x0n = int(math.floor(x0))
-        x1n = int(math.floor(x1))
-
-        dy = y1 - y0
-        dx = x1 - x0
-        x_step = 1 if dx >= 0 else -1
-        x_offset = 1 if dx < 0 else 0
-
-        m = dy / dx
-
-        for x in range(x0n + x_step, x1n + x_step, x_step):
-            # block offset due to rendering... 256.5 is in 257 for example FIXME PLEASE
-            y = m * (x - x0 - x_step) + y0
-
-            block = self.get_block(x, y)
-
-            if block and is_collidable(block):
-                direction = (
-                    IntersectionDirection.LEFT
-                    if x_step < 0
-                    else IntersectionDirection.RIGHT
-                )
-
-                return IntersectionContext(
-                    block=block,
-                    direction=direction,
-                    start=(x0, y0),
-                    intersect=(x + x_offset, y),
-                    end=(x1, y1),
-                    type=IntersectionType.DIAGONAL_VERTICAL,
-                )
-
-        return None
-
-    def handle_corner(self, ctx_x: IntersectionContext, ctx_y: IntersectionContext):
-        # lower_right
-        corner_x = int(ctx_x.intersect[0])
-        corner_y = int(ctx_y.intersect[1])
-
-        upper_left = self.get_block(corner_x - 1, corner_y + 1)
-        upper_right = self.get_block(corner_x, corner_y + 1)
-        lower_left = self.get_block(corner_x - 1, corner_y)
-        lower_right = self.get_block(corner_x, corner_y)
-
-        upper_left_ic = is_collidable(upper_left) if upper_left else False
-        upper_right_ic = is_collidable(upper_right) if upper_right else False
-        lower_left_ic = is_collidable(lower_left) if lower_left else False
-        lower_right_ic = is_collidable(lower_right) if lower_right else False
-
-        match (ctx_x.direction, ctx_y.direction):
-            case (IntersectionDirection.RIGHT, IntersectionDirection.DOWN):
-                # p X
-                # X -
-                match (upper_right_ic, lower_left_ic):
-                    case (True, True):
-                        return ctx_x  # thats the case that works nomatter how
-                    case (True, False):
-                        return ctx_x  # collision with vertical wall
-                    case (False, True):
-                        return ctx_y  # collision with horizontal wall
-                    case (False, False):
-                        return ctx_y  # collision with corner use ctx_y since we are less likely then to fall through the ground?
-            case (IntersectionDirection.RIGHT, IntersectionDirection.UP):
-                # X -
-                # p X
-                return ctx_x  # can just fall down here
-            case (IntersectionDirection.LEFT, IntersectionDirection.DOWN):
-                # X p
-                # - X
-                match (upper_left_ic, lower_right_ic):
-                    case (True, True):
-                        return ctx_y  # thats the case that works nomatter how
-                    case (True, False):
-                        return ctx_x  # collision with vertical wall
-                    case (False, True):
-                        return ctx_y  # collision with horizontal wall
-                    case (False, False):
-                        return ctx_y  # collision with corner use ctx_y since we are less likely then to fall through the ground
-            case (IntersectionDirection.LEFT, IntersectionDirection.UP):
-                # - X
-                # X p
-                return ctx_x  # well you can just fall down here nomatter what
-
-    def intersect(
-        self, x0: float, y0: float, x1: float, y1: float
-    ) -> Optional[IntersectionContext]:
-        """
-        Parameters
-        ----------
-        x0 : float
-            The starting x-coordinate of the ray.
-        y0 : float
-            The starting y-coordinate of the ray.
-        x1 : float
-            The ending x-coordinate of the ray.
-        y1 : float
-            The ending y-coordinate of the ray.
-        Returns
-        -------
-        IntersectionContext : tuple[BlockData, bool, float, float]
-            block_data : BlockData
-                Data of the hit block
-            direction : IntersectionDirection
-                The direction of the intersection. LEFT, RIGHT, UP, DOWN
-                LEFT => from right to left
-                RIGHT => from left to right
-                UP => from bottom to top
-                DOWN => from top to bottom
-            hit_x : float
-                The x-coordinate of the hit point.
-            hit_y : float
-                The y-coordinate of the hit point.
-        """
-        # Get Block coordinates
-        x0n = int(math.floor(x0))
-        x1n = int(math.floor(x1))
-        y0n = int(math.floor(y0))
-        y1n = int(math.floor(y1))
-
-        if (x0n == x1n) and (y0n == y1n):
-            return None
-
-        # print(f"R {x0},{y0} -> {x1},{y1}")
-        # print(f"N {x0n},{y0n} -> {x1n},{y1n}")
-        # Handle vertical ray (same x)
-        if x0n == x1n:
-            return self.intersect_ortho_line_y(x0, y0, x1, y1)
-
-        if y0n == y1n:
-            return self.intersect_ortho_line_x(x0, y0, x1, y1)
-
-        y_intersect = self.intersect_diagonal_horizontal_wall(x0, y0, x1, y1)
-
-        if y_intersect:
-            y_intersect.next = self.intersect_ortho_line_x(
-                y_intersect.intersect[0],
-                y_intersect.intersect[1] - y_intersect.direction.vector[1] / 10000,
-                x1,
-                y_intersect.intersect[1] - y_intersect.direction.vector[1] / 10000,
-            )
-
-        x_intersect = self.intersect_diagonal_vertical_wall(x0, y0, x1, y1)
-
-        if x_intersect:
-            x_intersect.next = self.intersect_ortho_line_y(
-                x_intersect.intersect[0] - x_intersect.direction.vector[0] / 10000,
-                x_intersect.intersect[1],
-                x_intersect.intersect[0] - x_intersect.direction.vector[0] / 10000,
-                y1,
-            )
-
-        if not x_intersect and not y_intersect:
-            return None
-
-        elif not x_intersect:
-            return y_intersect
-
-        elif not y_intersect:
-            return x_intersect
-
-        y_intersect_dx = y_intersect.intersect[0] - x0
-        y_intersect_dy = y_intersect.intersect[1] - y0
-
-        x_intersect_dx = x_intersect.intersect[0] - x0
-        x_intersect_dy = x_intersect.intersect[1] - y0
-
-        print(f"yi: {y_intersect_dx}, {y_intersect_dy}")
-        print(f"xi: {x_intersect_dx}, {x_intersect_dy}")
-
-        y_dist = math.sqrt(y_intersect_dx**2 + y_intersect_dy**2)
-
-        x_dist = math.sqrt(x_intersect_dx**2 + x_intersect_dy**2)
-
-        # If y-intersection happens first or at the same time, prioritize it
-        print((y_dist - x_dist))
-        if math.fabs(y_dist - x_dist) < 0.06:
-            return self.handle_corner(x_intersect, y_intersect)
-        elif y_dist < x_dist:
-            return y_intersect
-        else:
-            return x_intersect
-
     def get_block(self, x: float, y: float) -> BlockData | None:
         coords = self.world_to_chunk(x, y)
         if not coords:
@@ -757,8 +465,20 @@ class World:
         )  # FIXED: Changed from player_pos[1] to player_pos[0]
         self.chunk_manager.load_chunks_only(range(min_chunk, max_chunk + 1))
 
+    def get_block(self, x: float, y: float) -> Block | None:
+        block = self.chunk_manager.get_block(x, y)
+        if block is None:
+            return None
+        return Block(block)
+
     def set_block(self, x: float, y: float, block: Block) -> bool:
         return self.chunk_manager.set_block(x, y, block.value)
 
     def destroy_block(self, x: float, y: float) -> Block | None:
         return Block(self.chunk_manager.destroy_block(x, y))
+
+    def is_solid(self, x: float, y: float) -> bool:
+        block = self.chunk_manager.get_block(x, y)
+        if block is None:
+            return False
+        return is_solid(block)

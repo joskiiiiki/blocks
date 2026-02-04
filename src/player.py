@@ -4,12 +4,10 @@ from typing import Optional
 import pygame
 
 from src.assets import TILE_SIZE
+from src.collision import BoundingBox, sweep_collision
 from src.inventory import Hotbar, Inventory
 from src.utils import screen_to_world, world_to_screen
 from src.world import (
-    IntersectionContext,
-    IntersectionDirection,
-    IntersectionType,
     World,
 )
 
@@ -22,17 +20,18 @@ BLOCK_SELECTION.fill(pygame.Color(255, 255, 255, 255 // 5))
 
 
 class Player:
-    vel_x: float = 0
-    vel_y: float = 0
+    velocity: pygame.Vector2 = pygame.Vector2(0, 0)
+    bounding_box: BoundingBox = BoundingBox(
+        position=pygame.Vector2(0, 0), size=pygame.Vector2(0.8, 1.8)
+    )
     speed: float = 5
     sprint_speed: float = 8
     jump_power: float = 12
     gravity: float = -9.81
     on_ground: bool = False
+    hit_ceiling: bool = False
     sliding: bool = False
     slide_timer: float = 0
-    x: float
-    y: float
     delta_t: float = 1 / 60
     screen: pygame.Surface
     cursor_position: tuple[int, int] = (0, 0)
@@ -41,12 +40,10 @@ class Player:
     inventory: Inventory = Inventory()
     hotbar: Hotbar
 
-    _intersections: list[IntersectionContext] = []
-
     def __init__(
         self,
-        x: int,
-        y: int,
+        x: float,
+        y: float,
         screen: pygame.Surface,
         world: World,
         delta_t: Optional[float],
@@ -87,9 +84,6 @@ class Player:
             self.sliding = True
             self.slide_timer = 20
             self.vel_x *= 2
-
-        if keys[pygame.K_c]:
-            self._intersections.clear()
 
         self.hotbar.handle_keys(keys)
 
@@ -142,7 +136,7 @@ class Player:
             if was_set:
                 self.inventory.increment_slot_count(self.hotbar.selected_slot, -1)
 
-    def update(self) -> tuple[float, float]:
+    def update(self) -> None:
         self.handle_input()
 
         if self.sliding:
@@ -152,78 +146,19 @@ class Player:
                 self.sliding = False
 
         self.apply_gravity()
+        self.position, _, self.on_ground, self.hit_ceiling = sweep_collision(
+            bounding_box=self.bounding_box,
+            velocity=self.velocity * self.delta_t,
+            is_solid=self.world.is_solid,
+        )
 
-        return self.x + self.vel_x * self.delta_t, self.y + self.vel_y * self.delta_t
-
-    def set_position(self, x: float, y: float) -> None:
-        self.x = x
-        self.y = y
-
-    def set_position_tuple(self, position: tuple[float, float]) -> None:
-        self.x, self.y = position
-
-    def handle_intersection(self, primary_ctx: IntersectionContext):
-        self._intersections.append(primary_ctx)
-
-        match primary_ctx.type:
-            case IntersectionType.ORTHOGONAL_X:
-                print("ort x")
-                self.vel_x = 0
-                xs, ys = primary_ctx.start
-                xi, yi = primary_ctx.intersect
-                dir_x = primary_ctx.direction.vector[0]
-
-                self.set_position(xi - dir_x / 10000, yi)
-            case IntersectionType.ORTHOGONAL_Y:
-                self.vel_y = 0
-                xs, ys = primary_ctx.start
-                xi, yi = primary_ctx.intersect
-                dir_y = primary_ctx.direction.vector[1]
-
-                self.set_position(xi, yi - dir_y / 10000)
-                if primary_ctx.direction == IntersectionDirection.DOWN:
-                    self.on_ground = True
-
-            case IntersectionType.DIAGONAL_HORIZONTAL:
-                print("dig hor")
-                self.vel_y = 0
-
-                secondary_ctx = primary_ctx.next
-                xs, ys = primary_ctx.start
-                xi, yi = primary_ctx.intersect
-                xe, ye = primary_ctx.end
-                dir_y = primary_ctx.direction.vector[1]
-
-                if secondary_ctx:
-                    xis, yis = secondary_ctx.intersect
-                    dir_x = secondary_ctx.direction.vector[0]
-                    print(xis, yis)
-                    self.set_position(xis - dir_x / 10000, yi - dir_y / 10000)
-                    self.vel_x = 0
-                else:
-                    self.set_position(xe, yi - dir_y / 10000)
-
-            case IntersectionType.DIAGONAL_VERTICAL:
-                print("dig vert")
-                self.vel_x = 0
-
-                secondary_ctx = primary_ctx.next
-                xs, ys = primary_ctx.start
-                xi, yi = primary_ctx.intersect
-                xe, ye = primary_ctx.end
-                dir_x = primary_ctx.direction.vector[0]
-
-                if secondary_ctx:
-                    print(f"sec vert {secondary_ctx.intersect}")
-                    xis, yis = secondary_ctx.intersect
-                    dir_y = secondary_ctx.direction.vector[1]
-                    self.set_position(xi - dir_x / 10000, yis - dir_y / 10000)
-                    self.vel_y = 0
-                else:
-                    self.set_position(xi - dir_x / 10000, ye)
+        if self.on_ground and self.velocity.y < 0:
+            self.velocity.y = 0
+        elif self.hit_ceiling and self.velocity.y > 0:
+            self.velocity.y = 0
 
     def draw(self) -> None:
-        x = self.screen.width // 2 - 16
+        x = self.screen.width // 2 - (1 - self.bounding_box.size.x) * TILE_SIZE / 2
         y = self.screen.height // 2 - 64
         self.screen.blit(PLAYER_SPRITE, (x, y))
 
@@ -250,54 +185,58 @@ class Player:
 
         self.hotbar.draw(self.screen, self.inventory.get_hotbar_slots())
 
-        for index, intersection in enumerate(self._intersections):
-            screen_start_x, screen_start_y = world_to_screen(
-                self.x,
-                self.y,
-                intersection.start[0],
-                intersection.start[1],
-                self.screen.width,
-                self.screen.height,
-                TILE_SIZE,
-            )
+    @property
+    def position(self) -> pygame.Vector2:
+        return self.bounding_box.position
 
-            pygame.draw.circle(
-                self.screen, (255, 0, 0), (screen_start_x, screen_start_y), 1
-            )
+    @position.setter
+    def position(self, value: pygame.Vector2) -> None:
+        self.bounding_box.position = value
 
-            screen_end_x, screen_end_y = world_to_screen(
-                self.x,
-                self.y,
-                intersection.end[0],
-                intersection.end[1],
-                self.screen.width,
-                self.screen.height,
-                TILE_SIZE,
-            )
+    @property
+    def x(self) -> float:
+        return self.position.x
 
-            pygame.draw.line(
-                self.screen,
-                (255, 0, 0),
-                (screen_start_x, screen_start_y),
-                (screen_end_x, screen_end_y),
-                2,
-            )
+    @property
+    def y(self) -> float:
+        return self.position.y
 
-            if intersection.next:
-                screen_next_x, screen_next_y = world_to_screen(
-                    self.x,
-                    self.y,
-                    intersection.next.end[0],
-                    intersection.next.end[1],
-                    self.screen.width,
-                    self.screen.height,
-                    TILE_SIZE,
-                )
+    @x.setter
+    def x(self, value: float) -> None:
+        self.position.x = value
 
-                pygame.draw.line(
-                    self.screen,
-                    (0, 255, 255),
-                    (screen_end_x, screen_end_y),
-                    (screen_next_x, screen_next_y),
-                    2,
-                )
+    @y.setter
+    def y(self, value: float) -> None:
+        self.position.y = value
+
+    @property
+    def vel_x(self) -> float:
+        return self.velocity.x
+
+    @vel_x.setter
+    def vel_x(self, value: float) -> None:
+        self.velocity.x = value
+
+    @property
+    def vel_y(self) -> float:
+        return self.velocity.y
+
+    @vel_y.setter
+    def vel_y(self, value: float) -> None:
+        self.velocity.y = value
+
+    @property
+    def xy(self):
+        return (self.x, self.y)
+
+    @xy.setter
+    def xy(self, value: tuple[float, float]) -> None:
+        self.x, self.y = value
+
+    @property
+    def vel_xy(self):
+        return (self.vel_x, self.vel_y)
+
+    @vel_xy.setter
+    def vel_xy(self, value: tuple[float, float]) -> None:
+        self.vel_x, self.vel_y = value
