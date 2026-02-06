@@ -64,7 +64,7 @@ class ChunkRenderer:
 
             for x in range_x:
                 for y in range_y:
-                    tile_idx = chunk[x, y]
+                    tile_idx = chunk.blocks[x, y]
                     tile = blocks.BLOCK_TEXTURES.get(tile_idx)
 
                     if tile is not None:
@@ -83,7 +83,7 @@ class ChunkRenderer:
 
                         self.screen.blit(tile, (pixel_x, pixel_y - assets.TILE_SIZE))
 
-                        self.screen.blit(PX, (pixel_x, pixel_y - PX.height))
+                        # self.screen.blit(PX, (pixel_x, pixel_y - PX.height))
 
             #             yt = self.font.render(f"{y}", False, (255, 255, 255))
             #             xt = self.font.render(f"{x}", False, (255, 255, 255))

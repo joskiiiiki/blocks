@@ -4,6 +4,7 @@ from typing import Optional
 import pygame
 
 from src.assets import TILE_SIZE
+from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block
 from src.collision import BoundingBox, sweep_collision
 from src.inventory import Hotbar, Inventory
 from src.utils import screen_to_world, world_to_screen
@@ -39,6 +40,7 @@ class Player:
     world: World
     inventory: Inventory = Inventory()
     hotbar: Hotbar
+    in_water: bool = False
 
     def __init__(
         self,
@@ -57,6 +59,10 @@ class Player:
         self.hotbar = Hotbar(self.screen)
         self.world = world
 
+    def handle_mousewheel(self, event: pygame.event.Event) -> None:
+        if event.type == pygame.MOUSEWHEEL:
+            self.hotbar.handle_scroll(event.y)
+
     def handle_input(self) -> None:
         keys = pygame.key.get_pressed()
 
@@ -73,6 +79,12 @@ class Player:
         if keys[pygame.K_SPACE] and self.on_ground:
             self.vel_y += self.jump_power
             self.on_ground = False
+
+        # basic schwimmen
+        elif (keys[pygame.K_SPACE] or keys[pygame.K_w]) and self.in_water:
+            self.vel_y += 1.0 / BLOCK_SPEED[Block.WATER.value]
+        if keys[pygame.K_s] and self.in_water:
+            self.vel_y -= 1.0 / BLOCK_SPEED[Block.WATER.value]
 
         # sliden (nur am Boden + mit Sprint)
         if (
@@ -105,10 +117,10 @@ class Player:
         elif mouse_left:
             self.handle_left_click()
 
-    def apply_gravity(self) -> None:
+    def apply_gravity(self, multiplier: float = 1.0) -> None:
         # if self.on_ground:
         #     return
-        self.vel_y += self.gravity * self.delta_t
+        self.vel_y += self.gravity * self.delta_t * multiplier
 
     def handle_left_click(self) -> None:
         block = self.world.destroy_block(
@@ -137,6 +149,8 @@ class Player:
                 self.inventory.increment_slot_count(self.hotbar.selected_slot, -1)
 
     def update(self) -> None:
+        touching_blocks = self.get_touching_blocks()
+        self.in_water = Block.WATER.value in touching_blocks
         self.handle_input()
 
         if self.sliding:
@@ -146,6 +160,10 @@ class Player:
                 self.sliding = False
 
         self.apply_gravity()
+
+        if self.in_water:
+            self.velocity *= BLOCK_SPEED[Block.WATER.value]
+
         self.position, _, self.on_ground, self.hit_ceiling = sweep_collision(
             bounding_box=self.bounding_box,
             velocity=self.velocity * self.delta_t,
@@ -156,6 +174,37 @@ class Player:
             self.velocity.y = 0
         elif self.hit_ceiling and self.velocity.y > 0:
             self.velocity.y = 0
+
+    def get_touching_blocks(self, inset: float = 0.1) -> set[int]:
+        touching_blocks = set()
+        check_points = [
+            (
+                self.bounding_box.left + inset,
+                self.bounding_box.bottom + inset,
+            ),  # Bottom-left
+            (
+                self.bounding_box.right - inset,
+                self.bounding_box.bottom + inset,
+            ),  # Bottom-right
+            (
+                self.bounding_box.left + inset,
+                self.bounding_box.top - inset,
+            ),  # Top-left
+            (
+                self.bounding_box.right - inset,
+                self.bounding_box.top - inset,
+            ),  # Top-right
+            (
+                self.bounding_box.center.x,
+                self.bounding_box.center.y,
+            ),  # Center
+        ]
+        for point in check_points:
+            block = self.world.chunk_manager.get_block(point[0], point[1])
+            if block is not None:
+                touching_blocks.add(BLOCK_ID_MASK & block)
+
+        return touching_blocks
 
     def draw(self) -> None:
         x = self.screen.width // 2 - (1 - self.bounding_box.size.x) * TILE_SIZE / 2

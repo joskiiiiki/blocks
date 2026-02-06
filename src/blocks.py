@@ -18,6 +18,8 @@ class Block(Enum):
     DIRT = 2
     GRASS = 3
     WATER = 4
+    LOG = 5
+    LEAVES = 6
     UNKNOWN = 255
 
     def is_collidable(self) -> bool:
@@ -42,6 +44,8 @@ BLOCK_TEXTURES = {
     Block.DIRT.value: assets.DIRT_BLOCK,
     Block.GRASS.value: assets.GRASS_BLOCK,
     Block.WATER.value: assets.WATER_BLOCK,
+    Block.LOG.value: assets.LOG_BLOCK,
+    Block.LEAVES.value: assets.LEAVES_BLOCK,
     Block.UNKNOWN.value: assets.UNKNOWN_BLOCK,
 }
 
@@ -89,6 +93,9 @@ class Item(Enum):
     DIRT = 2
     GRASS = 3
     WATER = 4
+    LOG = 5
+    LEAVES = 6
+
     UNKNOWN = 255
 
     def get_block_id(self) -> int | None:
@@ -107,6 +114,8 @@ ITEM_TO_BLOCK: dict[int, int] = {
     Item.DIRT.value: Block.DIRT.value,
     Item.GRASS.value: Block.GRASS.value,
     Item.WATER.value: Block.WATER.value,
+    Item.LOG.value: Block.LOG.value,
+    Item.LEAVES.value: Block.LEAVES.value,
     Item.UNKNOWN.value: Block.UNKNOWN.value,
 }
 
@@ -117,5 +126,11 @@ ITEM_TEXTURES = {
     Item.DIRT.value: assets.DIRT_BLOCK,
     Item.GRASS.value: assets.GRASS_BLOCK,
     Item.WATER.value: assets.WATER_BLOCK,
+    Item.LOG.value: assets.LOG_BLOCK,
+    Item.LEAVES.value: assets.LEAVES_BLOCK,
     Item.UNKNOWN.value: assets.UNKNOWN_BLOCK,
+}
+
+BLOCK_SPEED = {
+    Block.WATER.value: 0.8,
 }

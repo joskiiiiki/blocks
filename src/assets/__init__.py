@@ -26,5 +26,11 @@ GRASS_BLOCK.fill(pygame.Color(31, 105, 55))
 WATER_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
 WATER_BLOCK.fill(pygame.Color(43, 134, 204, 125))
 
+LOG_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
+LOG_BLOCK.fill(pygame.Color(139, 69, 19))
+
+LEAVES_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
+LEAVES_BLOCK.fill(pygame.Color(144, 238, 144))
+
 UNKNOWN_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
 UNKNOWN_BLOCK.fill(pygame.Color(255, 0, 255))

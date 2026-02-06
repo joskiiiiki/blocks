@@ -45,6 +45,8 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
+                if event.type == pygame.MOUSEWHEEL:
+                    self.player.handle_mousewheel(event)
 
             keys = pygame.key.get_pressed()
             if keys[pygame.K_ESCAPE]:
@@ -66,6 +68,16 @@ class Game:
                 f"X={self.player.x:.10f} Y={self.player.y:.10f}", True, (255, 255, 255)
             )
             self.screen.blit(coords_text, (10, 10 + FONT_SIZE * 1.1))
+
+            chunk_coords = self.world.chunk_manager.world_to_chunk(
+                self.player.x, self.player.y
+            )
+            if chunk_coords is not None:
+                chunk_text = self.font.render(
+                    f"Chunk: {chunk_coords[0]}", True, (255, 255, 255)
+                )
+                self.screen.blit(chunk_text, (10, 10 + FONT_SIZE * 2.2))
+
             pygame.display.flip()
             self.clock.tick(self.framerate)
 

@@ -153,9 +153,6 @@ class Hotbar:
                 self.selected_slot = slot
 
     def handle_scroll(self, direction):
-        if direction < 0:
-            self.selected_slot -= 1
-        elif direction > 0:
-            self.selected_slot += 1
+        self.selected_slot += -1 if direction > 0 else 1
         # Wrap-Around
         self.selected_slot %= self.slot_count

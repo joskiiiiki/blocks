@@ -51,6 +51,7 @@
             pythonPackages.platformdirs
             pythonPackages.matplotlib
             pythonPackages.pytest
+            pythonPackages.opensimplex
             pkgs.ty
             pkgs.pyright
             pkgs.ruff
