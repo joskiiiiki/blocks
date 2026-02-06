@@ -40,7 +40,7 @@ class ChunkRenderer:
         min_chunk_x = self.chunk_manager.get_chunk_x(lower_left[0])
         max_chunk_x = self.chunk_manager.get_chunk_x(upper_right[0])
 
-        self.chunk_manager.load_chunks(range(min_chunk_x, max_chunk_x + 1))
+        self.chunk_manager.load_chunks_only(range(min_chunk_x, max_chunk_x + 1))
 
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
             chunk = self.chunk_manager.get_chunk_from_cache(chunk_x)

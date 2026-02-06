@@ -69,7 +69,7 @@ class Game:
             )
             self.screen.blit(coords_text, (10, 10 + FONT_SIZE * 1.1))
 
-            chunk_coords = self.world.chunk_manager.world_to_chunk(
+            chunk_coords = self.world.world_to_chunk(
                 self.player.x, self.player.y
             )
             if chunk_coords is not None:

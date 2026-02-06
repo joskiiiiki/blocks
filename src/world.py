@@ -17,6 +17,7 @@ import pygame
 from numpy.typing import NDArray
 from opensimplex import OpenSimplex
 from platformdirs import user_data_path
+import time
 
 from src.blocks import Block, BlockData, is_solid
 
@@ -243,20 +244,15 @@ class Chunk:
         min_y = max(0, min_cave_y)
         max_y = min(self.height - 1, max_cave_y)  # height-1 because indices are 0-based
 
-        # ✅ EARLY EXIT: Nothing to process
         if min_y > max_y:
             return
 
-        # 📏 Calculate region height ONCE (avoids off-by-one errors)
-        region_height = max_y - min_y + 1
-
-        # 🗺️ Generate WORLD coordinates (NOT chunk-local!) for noise coherence
         x_world = np.arange(
             self.chunk_x * self.width, (self.chunk_x + 1) * self.width, dtype=np.float32
         )
         y_world = np.arange(min_y, max_y + 1, dtype=np.float32)  # +1 for inclusive end
 
-        # ⚠️ CRITICAL FIX: noise2array returns (y_samples, x_samples) - MUST transpose!
+        t0 = time.time()
         noise = ctx.noise.noise2array(
             x_world * noise_scale_x, y_world * noise_scale_y
         ).T  # Shape: (width, region_height)
@@ -265,24 +261,25 @@ class Chunk:
             x_world * worm_scale_x, y_world * worm_scale_y
         ).T  # Shape: (width, region_height)
 
-        # ✅ CORRECT MASK APPLICATION (avoids "mask doesn't cover whole chunk" bug)
-        # 1. Get VIEW of the vertical slice (modifies original array)
+        t1 = time.time()
+        print("Noise gen:", t1 - t0)
+
+
+
         region = self.blocks[:, min_y : max_y + 1]  # Shape: (width, region_height)
 
-        # 2. Create mask ONLY for stone blocks in this region
         stone_mask = region == Block.STONE.value
 
-        # 3. Skip noise eval if no stone exists (massive speedup in sky regions)
         if not np.any(stone_mask):
             return
 
-        # 4. Combine noise conditions
         cave_mask = stone_mask & (
             (noise > noise_threshold) | (worm_noise > worm_threshold)
         )
 
-        # 5. ✅ SAFE ASSIGNMENT: Modify the VIEW (updates original self.blocks)
         region[cave_mask] = Block.AIR.value
+
+        print("Applying Mask:", t1 - t0)
 
     def _decorate_region(self, x_min: int, x_max: int, ctx: WorldGenContext):
         """Decorate a specific region of this chunk."""
@@ -370,22 +367,11 @@ class Chunk:
 
 
 class ChunkManager:
-    width: int = CHUNK_WIDTH
-    height: int = CHUNK_HEIGHT
-    region_size: int
-    chunk_cache: dict[int, Chunk]
-    world_dir: Path | None = None
-    _running: bool = True
-    save_queue: queue.Queue[tuple[int, Chunk]]
-    save_thread: threading.Thread
-    generation_queue: queue.Queue[int]
-    generation_thread: threading.Thread
-    _lock: threading.Lock
-    gen_ctx: WorldGenContext
-
+    """Thread-safe chunk manager with coordinated generation and decoration"""
+    
     def __init__(
         self,
-        gen_ctx: WorldGenContext,
+        gen_ctx,  # WorldGenContext
         path: Optional[os.PathLike] = None,
         width: int = 32,
         height: int = 512,
@@ -394,360 +380,436 @@ class ChunkManager:
         self.height = height
         self.width = width
         self.region_size = region_size
-        self.chunk_cache = dict()
-        # path is optional to allow running headless for testing
-        if path:
-            self.world_dir = pathlib.Path(path)
-            self.world_dir.mkdir(exist_ok=True, parents=True)
-
-        self.save_queue = queue.Queue()
-        self.generation_queue = queue.Queue()
-        self._lock = threading.Lock()
-
-        self.save_thread = threading.Thread(target=self._save_worker, daemon=False)
-        self.generation_thread = threading.Thread(
-            target=self._generation_worker, daemon=False
-        )
-
         self.gen_ctx = gen_ctx
+        
+        # Thread-safe cache with RWLock pattern
+        self._chunk_cache: dict[int, Chunk] = {}
+        self._cache_lock = threading.RLock()  # Reentrant lock for nested calls
+        
+        # Track chunks being processed to avoid duplicate work
+        self._generating: set[int] = set()
+        self._decorating: set[int] = set()
+        
+        # Condition variables for coordination
+        self._generation_cv = threading.Condition(self._cache_lock)
+        
+        # Persistent storage
+        self.world_dir = pathlib.Path(path) if path else None
+        if self.world_dir:
+            self.world_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Worker threads
+        self._running = False
+        self._generation_queue: queue.Queue[int] = queue.Queue()
+        self._save_queue: queue.Queue[tuple[int, Chunk]] = queue.Queue()
+        self._decoration_pending: set[int] = set()  # Chunks waiting for decoration
+        
+        self._generation_thread: Optional[threading.Thread] = None
+        self._save_thread: Optional[threading.Thread] = None
 
     def start(self):
+        """Start background worker threads"""
+        if self._running:
+            return
+            
         self._running = True
-
         if self.world_dir:
-            self.save_thread.start()
-            self.generation_thread.start()
-
-    def _save_worker(self):
-        while self._running:
-            try:
-                chunk_x, chunk = self.save_queue.get(timeout=0.5)
-                self._write_chunk_to_disk(chunk_x, chunk)
-                self.save_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Error saving chunk {chunk_x}: {e}")
-                self.save_queue.task_done()
-
-        print("Processing remaining save requests")
-        while not self.save_queue.empty():
-            try:
-                chunk_x, chunk = self.save_queue.get_nowait()
-                self._write_chunk_to_disk(chunk_x, chunk.copy())
-                self.save_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Error saving chunk {chunk_x}: {e}")
-                self.save_queue.task_done()
-
-        print("Save worker exiting")
-
-    def _generation_worker(self):
-        while self._running:
-            try:
-                chunk_x = self.generation_queue.get(timeout=0.5)
-                self._generate_chunk(chunk_x)
-                self.generation_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                print(f"Error generating chunk {chunk_x}: {e}")
-                self.generation_queue.task_done()
-
-    def queue_generation(self, x: int):
-        self.generation_queue.put(x)
-
-    def _generate_chunk(self, x: int):
-        chunk = Chunk(chunk_x=x)
-        chunk.generate(self.gen_ctx)
-
-        left, right = self.get_neighbours(chunk.chunk_x)
-        left_status = left.status if left is not None else None
-        right_status = right.status if right is not None else None
-        chunk.decorate(left_status, right_status, self.gen_ctx)
-
-        with self._lock:
-            self.chunk_cache[x] = chunk
-
-    def decorate_chunk(self, chunk: Chunk) -> bool:
-        left, right = self.get_neighbours(chunk.chunk_x)
-
-        left_status = left.status if left is not None else None
-        right_status = right.status if right is not None else None
-        return chunk.decorate(left_status, right_status, self.gen_ctx)
-
-    def get_neighbours(self, x: int) -> tuple[Chunk | None, Chunk | None]:
-        with self._lock:
-            left = self.get_chunk(x - 1)
-            right = self.get_chunk(x + 1)
-
-        return left, right
-
-    def get_chunk_from_cache(self, x: int) -> Chunk | None:
-        with self._lock:
-            return self.chunk_cache.get(x, None)
-
-    def load_chunks_only(self, chunks: Iterable[int]):
-        # FIXED: Corrected logic to properly load desired chunks and unload others
-        chunks_set = set(chunks)
-
-        with self._lock:
-            # Find chunks to unload (in cache but not in desired set)
-            to_unload = [x for x in self.chunk_cache.keys() if x not in chunks_set]
-
-        # Unload chunks not in the desired set
-        for x in to_unload:
-            self.unload_chunk(x)
-
-        # Load chunks that should be loaded
-        for chunk in chunks_set:
-            self.load_chunk(chunk)
-
-    def load_chunk(self, x: int, generate_if_not_exists: bool = True):
-        with self._lock:
-            if x in self.chunk_cache:
-                return None
-
-        chunk = self.get_chunk_from_disk(x)
-        if chunk is not None:
-            with self._lock:
-                self.chunk_cache[x] = chunk
-            return
-
-        if generate_if_not_exists:
-            self.queue_generation(x)
-
-    def load_chunks(self, range: Iterable[int]):
-        for x in range:
-            self.load_chunk(x)
-
-    def unload_chunk(self, x: int):
-        with self._lock:
-            chunk = self.chunk_cache.pop(x, None)
-            if chunk is not None:
-                self.write_chunk(x, chunk)
-
-    def unload_chunks(self, range: Iterable[int]):
-        for x in range:
-            self.unload_chunk(x)
-
-    def write_chunk(self, x: int, chunk: Optional[Chunk] = None):
-        if chunk is None:
-            chunk = self.get_chunk_from_cache(x)
-
-        if chunk is not None:
-            chunk = chunk.copy()
-            self.save_queue.put((x, chunk))
-
-    def _write_chunk_to_disk(self, x: int, chunk: Chunk):
-        if chunk is None or not self.world_dir:
-            return
-
-        region = x // self.region_size
-        region_path = self.world_dir / str(region)
-        region_path.mkdir(parents=True, exist_ok=True)
-
-        chunk_path = region_path / f"{x}.npy"
-        data_path = chunk_path.with_suffix(".json")
-
-        # atomic write to dont mess up the world accidentally not that i care but for good measure
-        tmp = chunk_path.with_suffix(".tmp")
-        with tmp.open("wb") as t:
-            np.save(t, chunk.blocks, allow_pickle=False)
-        tmp.replace(chunk_path)
-
-        tmp = data_path.with_suffix(".tmp")
-        with tmp.open("w") as t:
-            json.dump(chunk.data(), t)
-        tmp.replace(data_path)
-
-    def get_chunk_from_disk(self, x: int) -> Chunk | None:
-        if not self.world_dir:
-            return None
-
-        region = x // self.region_size
-        chunk_path = self.world_dir / str(region) / f"{x}.npy"
-        data_path = self.world_dir / str(region) / f"{x}.json"
-
-        if (
-            not chunk_path.exists()
-            or not chunk_path.is_file()
-            or not data_path.exists()
-            or not data_path.is_file()
-        ):
-            return None
-
-        blocks = np.load(chunk_path, allow_pickle=False)
-        data = json.load(data_path.open())
-        return Chunk.from_data(chunk_x=x, blocks=blocks, data=data)
-
-    def get_chunk(self, x: int) -> Chunk | None:
-        if not self.world_dir:
-            return None
-
-        chunk = self.chunk_cache.get(x)
-        if chunk:
-            return chunk
-
-        chunk = self.get_chunk_from_disk(x)
-
-        if chunk is None:
-            return None
-
-        self.chunk_cache[x] = chunk
-        return chunk
-
-    def save_world(self):
-        with self._lock:
-            chunks_to_save = list(self.chunk_cache.keys())  # copy for iteration issues
-
-        print(f"Queueing {len(chunks_to_save)} chunks for saving")
-        for chunk in chunks_to_save:
-            self.write_chunk(chunk)
-
-    def get_chunk_x(self, x: float) -> int:
-        return int(x) // self.width
-
-    def world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
-        """
-        Converts world coordinates to chunk coordinates.
-
-        Parameters
-        ----------
-        x : float
-            The x-coordinate in world space.
-        y : float
-            The y-coordinate in world space.
-
-        Returns
-        -------
-        chunk_x : int
-            The x-coordinate of the chunk in chunk space.
-        chunk_local_x : float
-            The x-coordinate inside the chunk from the lower left corner.
-        chunk_local_y : float
-            The y-coordinate inside the chunk from the lower left corner.
-        """
-        chunk_x = math.floor(x) // self.width
-        chunk_local_x = x % self.width
-
-        if y < 0 or y >= self.height:
-            return None
-
-        return chunk_x, chunk_local_x, y
-
-    def set_block(
-        self, x: float, y: float, block: BlockData, allow_replace: bool = False
-    ) -> bool:
-        """
-        Set the block at the given coordinates.
-
-        Parameters
-        ----------
-        x : float
-            The x-coordinate in world space.
-        y : float
-            The y-coordinate in world space.
-        block : BlockData
-            The block data to set.
-
-        Returns
-        -------
-        bool
-            True if the block was set successfully, False otherwise.
-        """
-        coords = self.world_to_chunk(x, y)
-        if coords is None:
-            return False
-
-        chunk_x, chunk_local_x, chunk_local_y = coords
-
-        chunk = self.get_chunk_from_cache(chunk_x)
-        if chunk is None:
-            return False
-
-        x = int(math.floor(chunk_local_x))
-        y = int(math.floor(y))
-
-        with self._lock:
-            if not allow_replace and chunk.blocks[x, y] != Block.AIR.value:
-                return False
-
-            chunk.blocks[x, y] = block
-
-        return True
-
-    def destroy_block(self, x: float, y: float) -> BlockData | None:
-        """
-        Destroy the block at the given coordinates. (replaces with AIR)
-
-        Parameters
-        ----------
-        x : float
-            The x-coordinate in world space.
-        y : float
-            The y-coordinate in world space.
-
-        Returns
-        -------
-        Block | None
-            The block that was destroyed, or None if the block was not destroyed.
-        """
-        coords = self.world_to_chunk(x, y)
-        if coords is None:
-            return None
-
-        chunk_x, chunk_local_x, chunk_local_y = coords
-
-        chunk = self.get_chunk_from_cache(chunk_x)
-        if chunk is None:
-            return None
-
-        x = int(math.floor(chunk_local_x))
-        y = int(math.floor(y))
-
-        with self._lock:
-            block = chunk.blocks[x, y]
-            chunk.blocks[x, y] = Block.AIR.value
-
-        return block
+            self._generation_thread = threading.Thread(
+                target=self._generation_worker, 
+                daemon=False,
+                name="ChunkGenerator"
+            )
+            self._save_thread = threading.Thread(
+                target=self._save_worker,
+                daemon=False,
+                name="ChunkSaver"
+            )
+            self._generation_thread.start()
+            self._save_thread.start()
 
     def shutdown(self):
-        print("Shutting down ChunkManager ...")
-        self.save_world()
-        self.save_queue.join()
-
+        """Gracefully shutdown all workers"""
+        print("Shutting down ChunkManager...")
+        
+        # Save all cached chunks
+        with self._cache_lock:
+            chunks_to_save = list(self._chunk_cache.keys())
+        
+        print(f"Queueing {len(chunks_to_save)} chunks for saving")
+        for chunk_x in chunks_to_save:
+            self._queue_save(chunk_x)
+        
+        # Wait for save queue to empty
+        self._save_queue.join()
+        
+        # Signal threads to stop
         self._running = False
+        
+        # Wake up any waiting threads
+        with self._generation_cv:
+            self._generation_cv.notify_all()
+        
+        # Wait for threads with timeout
+        if self._generation_thread:
+            self._generation_thread.join(timeout=10)
+            if self._generation_thread.is_alive():
+                print("WARNING: Generation thread did not terminate")
+        
+        if self._save_thread:
+            self._save_thread.join(timeout=10)
+            if self._save_thread.is_alive():
+                print("WARNING: Save thread did not terminate")
+        
+        print("ChunkManager shutdown complete")
 
-        self.save_thread.join(timeout=10)
-        self.generation_thread.join(timeout=10)
+    # ==================== WORKER THREADS ====================
 
-        if self.save_thread.is_alive():
-            print("Save thread did not terminate within timeout")
-        else:
-            print("Save thread terminated successfully")
-        if self.generation_thread.is_alive():
-            print("Generation thread did not terminate within timeout")
-        else:
-            print("Generation thread terminated successfully")
+    def _generation_worker(self):
+        """Background thread that generates and decorates chunks"""
+        while self._running:
+            try:
+                chunk_x = self._generation_queue.get(timeout=0.5)
+                self._process_chunk_generation(chunk_x)
+                self._generation_queue.task_done()
+            except queue.Empty:
+                # Check if any pending decorations can proceed
+                self._try_pending_decorations()
+            except Exception as e:
+                print(f"Error in generation worker: {e}")
+                import traceback
+                traceback.print_exc()
 
-    def get_block(self, x: float, y: float) -> BlockData | None:
-        coords = self.world_to_chunk(x, y)
+    def _save_worker(self):
+        """Background thread that saves chunks to disk"""
+        while self._running:
+            try:
+                chunk_x, chunk = self._save_queue.get(timeout=0.5)
+                self._write_chunk_to_disk(chunk_x, chunk)
+                self._save_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error saving chunk {chunk_x}: {e}")
+                self._save_queue.task_done()
+        
+        # Process remaining saves
+        while not self._save_queue.empty():
+            try:
+                chunk_x, chunk = self._save_queue.get_nowait()
+                self._write_chunk_to_disk(chunk_x, chunk)
+                self._save_queue.task_done()
+            except Exception as e:
+                print(f"Error in final save: {e}")
+
+    # ==================== GENERATION PIPELINE ====================
+
+    def _process_chunk_generation(self, chunk_x: int):
+        """Generate terrain and attempt decoration (thread-safe)"""
+        
+        # Step 1: Check if already exists or is being processed
+        with self._cache_lock:
+            if chunk_x in self._chunk_cache:
+                return  # Already loaded
+            if chunk_x in self._generating:
+                return  # Already being generated
+            
+            # Mark as being generated
+            self._generating.add(chunk_x)
+        
+        try:
+            # Step 2: Check disk first
+            chunk = self._load_from_disk(chunk_x)
+            
+            if chunk is None:
+                # Step 3: Generate new chunk
+                chunk = Chunk(chunk_x=chunk_x)
+                chunk.generate(self.gen_ctx)  # This is NOT thread-safe with neighbors
+            
+            # Step 4: Add to cache atomically
+            with self._cache_lock:
+                self._chunk_cache[chunk_x] = chunk
+                self._generating.remove(chunk_x)
+                
+                # If not decorated, mark as pending
+                if chunk.status != ChunkStatus.DECORATED:
+                    self._decoration_pending.add(chunk_x)
+                
+                # Notify anyone waiting for this chunk
+                self._generation_cv.notify_all()
+            
+            # Step 5: Try to decorate this chunk and trigger neighbor decoration
+            self._attempt_decoration(chunk_x)
+            
+            # Also check if neighbors can now be decorated
+            for neighbor_x in [chunk_x - 1, chunk_x + 1]:
+                with self._cache_lock:
+                    if neighbor_x in self._decoration_pending:
+                        self._attempt_decoration(neighbor_x)
+                        
+        except Exception as e:
+            print(f"Error generating chunk {chunk_x}: {e}")
+            with self._cache_lock:
+                self._generating.discard(chunk_x)
+                self._generation_cv.notify_all()
+
+    def _attempt_decoration(self, chunk_x: int):
+        """Try to decorate a chunk if neighbors are ready"""
+        
+        with self._cache_lock:
+            # Check if chunk exists and needs decoration
+            chunk = self._chunk_cache.get(chunk_x)
+            if chunk is None or chunk.status == ChunkStatus.DECORATED:
+                self._decoration_pending.discard(chunk_x)
+                return
+            
+            if chunk.status != ChunkStatus.TERRAIN_GENERATED:
+                return
+            
+            # Check if already being decorated
+            if chunk_x in self._decorating:
+                return
+            
+            # Get neighbor chunks
+            left_chunk = self._chunk_cache.get(chunk_x - 1)
+            right_chunk = self._chunk_cache.get(chunk_x + 1)
+            
+            # Check if neighbors are ready (terrain generated or decorated)
+            left_ready = (left_chunk is not None and 
+                         left_chunk.status in [ChunkStatus.TERRAIN_GENERATED, ChunkStatus.DECORATED])
+            right_ready = (right_chunk is not None and 
+                          right_chunk.status in [ChunkStatus.TERRAIN_GENERATED, ChunkStatus.DECORATED])
+            
+            if not (left_ready and right_ready):
+                # Can't decorate yet - neighbors not ready
+                return
+            
+            # Mark as being decorated
+            self._decorating.add(chunk_x)
+        
+        # Decorate outside the lock (the chunk.decorate method needs access to neighbors)
+        try:
+            left_status = left_chunk.status if left_chunk else None
+            right_status = right_chunk.status if right_chunk else None
+            
+            success = chunk.decorate(left_status, right_status, self.gen_ctx)
+            
+            with self._cache_lock:
+                self._decorating.remove(chunk_x)
+                if success:
+                    self._decoration_pending.discard(chunk_x)
+                    # Notify threads waiting for decoration
+                    self._generation_cv.notify_all()
+                    
+        except Exception as e:
+            print(f"Error decorating chunk {chunk_x}: {e}")
+            with self._cache_lock:
+                self._decorating.remove(chunk_x)
+
+    def _try_pending_decorations(self):
+        """Attempt to decorate all pending chunks"""
+        with self._cache_lock:
+            pending = list(self._decoration_pending)
+        
+        for chunk_x in pending:
+            self._attempt_decoration(chunk_x)
+
+    # ==================== PUBLIC API ====================
+
+    def queue_generation(self, chunk_x: int):
+        """Request generation of a chunk (non-blocking)"""
+        self._generation_queue.put(chunk_x)
+
+    def load_chunk(self, chunk_x: int, generate_if_not_exists: bool = True):
+        """Load a chunk from cache or disk, optionally generating if missing"""
+        with self._cache_lock:
+            if chunk_x in self._chunk_cache:
+                return  # Already loaded
+        
+        # Try loading from disk
+        chunk = self._load_from_disk(chunk_x)
+        if chunk is not None:
+            with self._cache_lock:
+                self._chunk_cache[chunk_x] = chunk
+                if chunk.status != ChunkStatus.DECORATED:
+                    self._decoration_pending.add(chunk_x)
+                    self._attempt_decoration(chunk_x)
+            return
+        
+        # Generate if requested
+        if generate_if_not_exists:
+            self.queue_generation(chunk_x)
+
+    def load_chunks_only(self, chunks: Iterable[int]):
+        """Load only the specified chunks, unloading others"""
+        chunks_set = set(chunks)
+        
+        with self._cache_lock:
+            # Find chunks to unload
+            to_unload = [x for x in self._chunk_cache.keys() if x not in chunks_set]
+        
+        # Unload chunks
+        for chunk_x in to_unload:
+            self.unload_chunk(chunk_x)
+        
+        # Load desired chunks
+        for chunk_x in chunks_set:
+            self.load_chunk(chunk_x)
+
+    def unload_chunk(self, chunk_x: int):
+        """Unload a chunk from cache, saving it first"""
+        with self._cache_lock:
+            chunk = self._chunk_cache.pop(chunk_x, None)
+            self._decoration_pending.discard(chunk_x)
+        
+        if chunk is not None:
+            self._queue_save(chunk_x, chunk)
+
+    def get_chunk_from_cache(self, chunk_x: int) -> Chunk | None:
+        """Thread-safe cache access"""
+        with self._cache_lock:
+            return self._chunk_cache.get(chunk_x)
+
+    def get_chunk(self, chunk_x: int) -> Chunk | None:
+        """Get chunk from cache or disk (does not generate)"""
+        chunk = self.get_chunk_from_cache(chunk_x)
+        if chunk:
+            return chunk
+        
+        return self._load_from_disk(chunk_x)
+
+    # ==================== BLOCK OPERATIONS ====================
+
+    def get_block(self, x: float, y: float):
+        """Thread-safe block access"""
+        coords = self._world_to_chunk(x, y)
         if not coords:
             return None
-        chunk_x, x, y = coords
+        
+        chunk_x, local_x, local_y = coords
+        
+        with self._cache_lock:
+            chunk = self._chunk_cache.get(chunk_x)
+            if chunk is None:
+                return None
+            
+            xn = int(np.floor(local_x))
+            yn = int(np.floor(local_y))
+            return chunk.blocks[xn, yn]
 
-        xn = int(np.floor(x))
-        yn = int(np.floor(y))
+    def set_block(self, x: float, y: float, block, allow_replace: bool = False) -> bool:
+        """Thread-safe block modification"""
+        coords = self._world_to_chunk(x, y)
+        if coords is None:
+            return False
+        
+        chunk_x, local_x, local_y = coords
+        
+        with self._cache_lock:
+            chunk = self._chunk_cache.get(chunk_x)
+            if chunk is None:
+                return False
+            
+            xn = int(np.floor(local_x))
+            yn = int(np.floor(local_y))
+            
+            # Check if replacement is allowed
+            if not allow_replace and chunk.blocks[xn, yn] != 0:  # Assuming 0 = AIR
+                return False
+            
+            chunk.blocks[xn, yn] = block
+            return True
 
-        chunk = self.get_chunk_from_cache(chunk_x)
-        if chunk is None:
+    def destroy_block(self, x: float, y: float):
+        """Thread-safe block destruction"""
+        coords = self._world_to_chunk(x, y)
+        if coords is None:
             return None
-        block: BlockData = chunk.blocks[xn, yn]
+        
+        chunk_x, local_x, local_y = coords
+        
+        with self._cache_lock:
+            chunk = self._chunk_cache.get(chunk_x)
+            if chunk is None:
+                return None
+            
+            xn = int(np.floor(local_x))
+            yn = int(np.floor(local_y))
+            
+            old_block = chunk.blocks[xn, yn]
+            chunk.blocks[xn, yn] = 0  # AIR
+            return old_block
 
-        return block
+    # ==================== DISK I/O ====================
+
+    def _queue_save(self, chunk_x: int, chunk: Optional[Chunk] = None):
+        """Queue a chunk for saving"""
+        if chunk is None:
+            with self._cache_lock:
+                chunk = self._chunk_cache.get(chunk_x)
+        
+        if chunk is not None:
+            self._save_queue.put((chunk_x, chunk.copy()))
+
+    def _write_chunk_to_disk(self, chunk_x: int, chunk: Chunk):
+        """Write chunk to disk (called by save worker)"""
+        if not self.world_dir:
+            return
+        
+        region = chunk_x // self.region_size
+        region_path = self.world_dir / str(region)
+        region_path.mkdir(parents=True, exist_ok=True)
+        
+        chunk_path = region_path / f"{chunk_x}.npy"
+        data_path = region_path / f"{chunk_x}.json"
+        
+        # Atomic write
+        tmp_chunk = chunk_path.with_suffix(".tmp")
+        with tmp_chunk.open("wb") as f:
+            np.save(f, chunk.blocks, allow_pickle=False)
+        tmp_chunk.replace(chunk_path)
+        
+        tmp_data = data_path.with_suffix(".tmp")
+        with tmp_data.open("w") as f:
+            json.dump(chunk.data(), f)
+        tmp_data.replace(data_path)
+
+    def _load_from_disk(self, chunk_x: int) -> Chunk | None:
+        """Load chunk from disk"""
+        if not self.world_dir:
+            return None
+        
+        region = chunk_x // self.region_size
+        chunk_path = self.world_dir / str(region) / f"{chunk_x}.npy"
+        data_path = self.world_dir / str(region) / f"{chunk_x}.json"
+        
+        if not (chunk_path.exists() and data_path.exists()):
+            return None
+        
+        try:
+            blocks = np.load(chunk_path, allow_pickle=False)
+            with data_path.open() as f:
+                data = json.load(f)
+            return Chunk.from_data(chunk_x=chunk_x, blocks=blocks, data=data)
+        except Exception as e:
+            print(f"Error loading chunk {chunk_x}: {e}")
+            return None
+
+    # ==================== HELPERS ====================
+
+    def _world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
+        """Convert world coordinates to chunk coordinates"""
+        chunk_x = math.floor(x) // self.width
+        local_x = x % self.width
+        
+        if y < 0 or y >= self.height:
+            return None
+        
+        return chunk_x, local_x, y
+
+    def get_chunk_x(self, x: float) -> int:
+        """Get chunk X coordinate from world X"""
+        return int(x) // self.width
+
 
 
 class WorldData:
@@ -873,3 +935,6 @@ class World:
         if block is None:
             return False
         return is_solid(block)
+
+    def world_to_chunk(self, x: float, y:float) -> tuple[int, float, float] | None:
+        return self.chunk_manager._world_to_chunk(x, y)

@@ -38,6 +38,7 @@
           inherit pygame-ce;
 
         };
+        fastnoiselite = pythonPackages.callPackage ./nix/fastnoiselite.nix {};
       in
       {
         devShells.default = pkgs.mkShell {
@@ -51,7 +52,7 @@
             pythonPackages.platformdirs
             pythonPackages.matplotlib
             pythonPackages.pytest
-            pythonPackages.opensimplex
+            fastnoiselite
             pkgs.ty
             pkgs.pyright
             pkgs.ruff
