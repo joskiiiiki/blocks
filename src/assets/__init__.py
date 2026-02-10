@@ -5,7 +5,8 @@ import pygame
 asset_dir = pathlib.Path(__file__).parent.resolve()
 
 TILE_SIZE = 32
-
+UNKNOWN_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
+UNKNOWN_BLOCK.fill(pygame.Color(255, 0, 255))
 HOTBAR = pygame.image.load(asset_dir / "hotbar.png")
 HOTBAR = pygame.transform.scale2x(HOTBAR)
 HOTBAR_SELECTED = pygame.image.load(asset_dir / "hotbar_selected.png")
@@ -14,23 +15,40 @@ HOTBAR_RIM = 2 * 2
 
 COLOR_SKY = pygame.Color(118, 183, 194)
 
-STONE_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-STONE_BLOCK.fill(pygame.Color(100, 100, 100))
 
-DIRT_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-DIRT_BLOCK.fill(pygame.Color(64, 43, 26))
+class Textures:
+    _textures: dict[str, pygame.Surface | None] = {
+        "stone": None,
+        "dirt": None,
+        "grass": None,
+        "water": None,
+        "water_top": None,
+        "log": None,
+        "leaves": None,
+        "unknown": UNKNOWN_BLOCK,
+    }
 
-GRASS_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-GRASS_BLOCK.fill(pygame.Color(31, 105, 55))
+    def __init__(self):
+        pass
 
-WATER_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-WATER_BLOCK.fill(pygame.Color(43, 134, 204, 125))
+    def get_texture(self, name: str) -> pygame.Surface:
+        texture = self._textures.get(name, UNKNOWN_BLOCK)
+        if texture is None:
+            return UNKNOWN_BLOCK
+        return texture
 
-LOG_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-LOG_BLOCK.fill(pygame.Color(139, 69, 19))
+    def load(self) -> None:
+        for name in self._textures:
+            # check if path exists
+            if (
+                not (asset_dir / f"{name}.png").exists()
+                or not (asset_dir / f"{name}.png").is_file()
+            ):
+                self._textures[name] = None
+            else:
+                self._textures[name] = pygame.image.load(
+                    asset_dir / f"{name}.png"
+                ).convert_alpha()
 
-LEAVES_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-LEAVES_BLOCK.fill(pygame.Color(144, 238, 144))
 
-UNKNOWN_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
-UNKNOWN_BLOCK.fill(pygame.Color(255, 0, 255))
+TEXTURES = Textures()

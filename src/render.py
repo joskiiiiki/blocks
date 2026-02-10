@@ -1,6 +1,7 @@
 import pygame
 
 from src import assets, blocks
+from src.blocks import Block
 from src.utils import camera_to_world, world_to_screen
 from src.world import ChunkManager
 
@@ -65,7 +66,13 @@ class ChunkRenderer:
             for x in range_x:
                 for y in range_y:
                     tile_idx = chunk.blocks[x, y]
-                    tile = blocks.BLOCK_TEXTURES.get(tile_idx)
+                    tile = Block.get_texture_from_id(tile_idx)
+
+                    if (
+                        tile_idx == Block.WATER.value
+                        and chunk.blocks[x, y + 1] == Block.AIR.value
+                    ):
+                        tile = assets.TEXTURES.get_texture("water_top")
 
                     if tile is not None:
                         world_x = base_x + x

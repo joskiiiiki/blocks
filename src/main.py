@@ -37,6 +37,7 @@ class Game:
         self.font = pygame.Font(None, FONT_SIZE)
 
     def main(self):
+        assets.TEXTURES.load()
         self.world.update_chunk_cache()
         self.running = True
         while self.running:

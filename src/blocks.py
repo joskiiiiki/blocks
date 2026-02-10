@@ -28,8 +28,18 @@ class Block(Enum):
     def __str__(self) -> str:
         return self.name
 
+    @staticmethod
+    def get_texture_from_id(block_id: int) -> pygame.Surface | None:
+        name = BLOCK_TEXTURES[block_id]
+        if not name:
+            return None
+        return assets.TEXTURES.get_texture(name)
+
     def get_texture(self) -> pygame.Surface | None:
-        return BLOCK_TEXTURES[self.value]
+        name = BLOCK_TEXTURES[self.value]
+        if not name:
+            return None
+        return assets.TEXTURES.get_texture(name)
 
     def get_item(self) -> Item | None:
         id = blocks_to_items.get(self.value)
@@ -38,15 +48,15 @@ class Block(Enum):
         return None
 
 
-BLOCK_TEXTURES = {
+BLOCK_TEXTURES: dict[int, str | None] = {
     Block.AIR.value: None,
-    Block.STONE.value: assets.STONE_BLOCK,
-    Block.DIRT.value: assets.DIRT_BLOCK,
-    Block.GRASS.value: assets.GRASS_BLOCK,
-    Block.WATER.value: assets.WATER_BLOCK,
-    Block.LOG.value: assets.LOG_BLOCK,
-    Block.LEAVES.value: assets.LEAVES_BLOCK,
-    Block.UNKNOWN.value: assets.UNKNOWN_BLOCK,
+    Block.STONE.value: "stone",
+    Block.DIRT.value: "dirt",
+    Block.GRASS.value: "grass",
+    Block.WATER.value: "water",
+    Block.LOG.value: "log",
+    Block.LEAVES.value: "leaves",
+    Block.UNKNOWN.value: "unknown",
 }
 
 
@@ -105,8 +115,18 @@ class Item(Enum):
         block_id = self.get_block_id()
         return Block(block_id) if block_id is not None else None
 
+    @staticmethod
+    def get_texture_from_id(id: int) -> pygame.Surface | None:
+        name = ITEM_TEXTURES.get(id)
+        if not name:
+            return None
+        return assets.TEXTURES.get_texture(name)
+
     def get_texture(self) -> pygame.Surface | None:
-        return ITEM_TEXTURES.get(self.value)
+        name = ITEM_TEXTURES.get(self.value)
+        if not name:
+            return None
+        return assets.TEXTURES.get_texture(name)
 
 
 ITEM_TO_BLOCK: dict[int, int] = {
@@ -122,13 +142,13 @@ ITEM_TO_BLOCK: dict[int, int] = {
 blocks_to_items = {block: item for item, block in ITEM_TO_BLOCK.items()}
 
 ITEM_TEXTURES = {
-    Item.STONE.value: assets.STONE_BLOCK,
-    Item.DIRT.value: assets.DIRT_BLOCK,
-    Item.GRASS.value: assets.GRASS_BLOCK,
-    Item.WATER.value: assets.WATER_BLOCK,
-    Item.LOG.value: assets.LOG_BLOCK,
-    Item.LEAVES.value: assets.LEAVES_BLOCK,
-    Item.UNKNOWN.value: assets.UNKNOWN_BLOCK,
+    Item.STONE.value: "stone",
+    Item.DIRT.value: "dirt",
+    Item.GRASS.value: "grass",
+    Item.WATER.value: "water",
+    Item.LOG.value: "log",
+    Item.LEAVES.value: "leaves",
+    Item.UNKNOWN.value: "unknown",
 }
 
 BLOCK_SPEED = {
