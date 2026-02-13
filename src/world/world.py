@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import pygame
 
 from src.blocks import Block, is_solid
-from src.world.chunk import CHUNK_HEIGHT
+from src.world.chunk import CHUNK_HEIGHT, CHUNK_WIDTH
 from src.world.chunk_manager import ChunkManager
 from src.world.gen_context import WorldGenContext
-from src.world.chunk import CHUNK_WIDTH
 
 MARKER = pygame.Surface((8, 8))
 MARKER.fill((255, 0, 0))
@@ -72,11 +72,18 @@ class World:
     world_path: pathlib.Path
     player_pos: tuple[float, float] = (0, 0)
     world_data: WorldData
+    on_block_changed: Callable[[int, int], None] | None
 
-    def __init__(self, path: pathlib.Path):
+    def __init__(
+        self,
+        path: pathlib.Path,
+        on_block_changed: Callable[[int, int], None] | None = None,
+    ):
         self.world_path = path
 
         exists = path.exists() and path.is_dir()
+
+        self.on_block_changed = on_block_changed
 
         if not exists:
             self.world_path.mkdir(parents=True, exist_ok=True)
@@ -133,9 +140,13 @@ class World:
         return Block(block)
 
     def set_block(self, x: float, y: float, block: Block) -> bool:
+        if self.on_block_changed is not None:
+            self.on_block_changed(int(x), int(y))
         return self.chunk_manager.set_block(x, y, block.value)
 
     def destroy_block(self, x: float, y: float) -> Block | None:
+        if self.on_block_changed is not None:
+            self.on_block_changed(int(x), int(y))
         return Block(self.chunk_manager.destroy_block(x, y))
 
     def is_solid(self, x: float, y: float) -> bool:

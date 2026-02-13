@@ -3,6 +3,7 @@ from pathlib import Path
 import pygame
 
 from src import assets
+from src.lighting import LightingManager
 from src.player import Player
 from src.render import ChunkRenderer
 from src.world import World, world_path
@@ -20,18 +21,27 @@ class Game:
     clock: pygame.time.Clock
     running: bool = False
     font: pygame.Font
+    lighting_manager: LightingManager
 
     def __init__(self, world_path: Path):
         pygame.init()
-        self.world = World(world_path)
+        self.world = World(world_path, self.on_block_changed)
         self.screen = pygame.display.set_mode(
             (1280, 720), flags=pygame.SRCALPHA | pygame.RESIZABLE
         )
+        self.lighting_manager = LightingManager(self.world.chunk_manager)
         self.chunk_render = ChunkRenderer(
-            self.world.chunk_manager, self.tile_size, self.screen
+            self.world.chunk_manager,
+            self.tile_size,
+            self.screen,
+            self.lighting_manager,
         )
         self.player = Player(
-            x=2, y=260, world=self.world, screen=self.screen, delta_t=1 / self.framerate
+            x=2,
+            y=260,
+            world=self.world,
+            screen=self.screen,
+            delta_t=1 / self.framerate,
         )
         self.clock = pygame.time.Clock()
         self.font = pygame.Font(None, FONT_SIZE)
@@ -40,6 +50,7 @@ class Game:
         assets.TEXTURES.load()
         self.world.update_chunk_cache()
         self.running = True
+        delta_t = 1 / self.framerate
         while self.running:
             self.screen.fill(assets.COLOR_SKY)
 
@@ -53,7 +64,7 @@ class Game:
             if keys[pygame.K_ESCAPE]:
                 self.running = False
 
-            self.player.update()
+            self.player.update(delta_t)
             self.world.player_pos = self.player.xy
 
             self.world.update_chunk_cache()
@@ -78,7 +89,16 @@ class Game:
                 self.screen.blit(chunk_text, (10, 10 + FONT_SIZE * 2.2))
 
             pygame.display.flip()
-            self.clock.tick(self.framerate)
+            delta_t = self.clock.tick(self.framerate) / 1000  # convert to seconds
+
+    def on_block_changed(self, world_x: int, world_y: int):
+        chunk_x = self.world.chunk_manager.get_chunk_x(world_x)
+
+        # Mark affected chunks dirty (include neighbors for light propagation)
+        self.lighting_manager.mark_chunks_dirty([chunk_x - 1, chunk_x, chunk_x + 1])
+
+        # Mark renderer dirty
+        self.chunk_render.mark_lighting_dirty()
 
     def on_exit(self):
         self.world.chunk_manager.shutdown()

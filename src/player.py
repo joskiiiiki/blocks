@@ -1,10 +1,11 @@
 import math
+from collections.abc import Callable
 from typing import Optional
 
 import pygame
 
 from src.assets import TILE_SIZE
-from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block
+from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block, Item
 from src.collision import BoundingBox, sweep_collision
 from src.inventory import Hotbar, Inventory
 from src.utils import screen_to_world, world_to_screen
@@ -33,7 +34,6 @@ class Player:
     hit_ceiling: bool = False
     sliding: bool = False
     slide_timer: float = 0
-    delta_t: float = 1 / 60
     screen: pygame.Surface
     cursor_position: tuple[int, int] = (0, 0)
     cursor_position_world: tuple[float, float] = (0.0, 0.0)
@@ -58,6 +58,7 @@ class Player:
         self.screen = screen
         self.hotbar = Hotbar(self.screen)
         self.world = world
+        self.inventory.add_stack((Item.TORCH, 100))
 
     def handle_mousewheel(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEWHEEL:
@@ -117,10 +118,10 @@ class Player:
         elif mouse_left:
             self.handle_left_click()
 
-    def apply_gravity(self, multiplier: float = 1.0) -> None:
+    def apply_gravity(self, delta_t: float, multiplier: float = 1.0) -> None:
         # if self.on_ground:
         #     return
-        self.vel_y += self.gravity * self.delta_t * multiplier
+        self.vel_y += self.gravity * delta_t * multiplier
 
     def handle_left_click(self) -> None:
         block = self.world.destroy_block(
@@ -148,7 +149,7 @@ class Player:
             if was_set:
                 self.inventory.increment_slot_count(self.hotbar.selected_slot, -1)
 
-    def update(self) -> None:
+    def update(self, delta_t: float) -> None:
         touching_blocks = self.get_touching_blocks()
         self.in_water = Block.WATER.value in touching_blocks
         self.handle_input()
@@ -159,14 +160,14 @@ class Player:
             if self.slide_timer <= 0:
                 self.sliding = False
 
-        self.apply_gravity()
+        self.apply_gravity(delta_t)
 
         if self.in_water:
             self.velocity *= BLOCK_SPEED[Block.WATER.value]
 
         self.position, _, self.on_ground, self.hit_ceiling = sweep_collision(
             bounding_box=self.bounding_box,
-            velocity=self.velocity * self.delta_t,
+            velocity=self.velocity * delta_t,
             is_solid=self.world.is_solid,
         )
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from enum import Enum
 from typing import TypedDict
 
@@ -220,9 +221,8 @@ class Chunk:
         if not np.any(stone_mask):
             return
 
-        cave_mask = (
-            stone_mask & (noise > noise_threshold) |
-            (worm_noise > worm_threshold)
+        cave_mask = stone_mask & (noise > noise_threshold) | (
+            worm_noise > worm_threshold
         )
 
         region[cave_mask] = Block.AIR.value
