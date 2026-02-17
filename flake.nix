@@ -38,7 +38,7 @@
           inherit pygame-ce;
 
         };
-        fastnoiselite = pythonPackages.callPackage ./nix/fastnoiselite.nix {};
+        fastnoiselite = pythonPackages.callPackage ./nix/fastnoiselite.nix { };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -52,10 +52,14 @@
             pythonPackages.platformdirs
             pythonPackages.matplotlib
             pythonPackages.pytest
+            pythonPackages.moderngl
+            pythonPackages.pyopengl
             fastnoiselite
             pkgs.ty
             pkgs.pyright
             pkgs.ruff
+            pkgs.glsl_analyzer
+            pkgs.glslang
           ];
           shellHook = ''
             echo "Pygame development environment loaded"

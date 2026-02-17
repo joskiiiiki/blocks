@@ -14,6 +14,7 @@ HOTBAR_SELECTED = pygame.transform.scale2x(HOTBAR_SELECTED)
 HOTBAR_RIM = 2 * 2
 
 COLOR_SKY = pygame.Color(118, 183, 194)
+COLOR_SKY
 
 
 class Textures:

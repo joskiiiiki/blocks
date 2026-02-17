@@ -1,11 +1,12 @@
 from typing import cast
-from src.assets import COLOR_SKY, TILE_SIZE
+
 import numpy as np
 import pygame
 
 from src import assets, blocks
+from src.assets import COLOR_SKY, TILE_SIZE
 from src.blocks import BLOCK_ID_MASK, Block
-from src.lighting import LightingManager
+from src.lighting import LightingManagerGL
 from src.utils import camera_to_world, world_to_screen
 from src.world import ChunkManager
 
@@ -21,14 +22,14 @@ class ChunkRenderer:
     lit_tile_cache: dict[tuple[int, float, float, float], pygame.Surface] = {}
     lighting_dirty: bool = False
     last_lit_chunks: set[int] = set()
-    lighting_manager: LightingManager
+    lighting_manager: LightingManagerGL
 
     def __init__(
         self,
         chunk_manager: ChunkManager,
         tile_size: int,
         screen: pygame.Surface,
-        lighting_manager: LightingManager,
+        lighting_manager: LightingManagerGL,
     ):
         self.chunk_manager = chunk_manager
         self.tile_size = tile_size

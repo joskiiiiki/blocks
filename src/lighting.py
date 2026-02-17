@@ -134,7 +134,7 @@ def calculate_light_map(chunk: Chunk, iterations: int = 10) -> LightMask:
     return np.clip(light_map, 0.0, 1.0)
 
 
-class LightingManager:
+class LightingManagerGL:
     def __init__(self, chunk_manager):
         self.chunk_manager = chunk_manager
         self.lightmaps: dict[int, LightMask] = {}

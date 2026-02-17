@@ -1,11 +1,11 @@
 from pathlib import Path
 
+import moderngl
 import pygame
 
 from src import assets
-from src.lighting import LightingManager
 from src.player import Player
-from src.render import ChunkRenderer
+from src.render_gl import ChunkRendererGL
 from src.world import World, world_path
 
 FONT_SIZE = 24
@@ -14,33 +14,37 @@ FONT_SIZE = 24
 class Game:
     framerate = 60
     world: World
-    chunk_render: ChunkRenderer
+    chunk_render: ChunkRendererGL
     tile_size: int = 32
-    screen: pygame.Surface
+    _surface: pygame.Surface  # actual screen surface under opengl - dont blit to this
+    screen: pygame.Surface  # surface to blit to - should be used except you know better
     player: Player
     clock: pygame.time.Clock
     running: bool = False
     font: pygame.Font
-    lighting_manager: LightingManager
+    # lighting_manager: LightingManagerGL
+    gl_ctx: moderngl.Context
 
     def __init__(self, world_path: Path):
         pygame.init()
         self.world = World(world_path, self.on_block_changed)
-        self.screen = pygame.display.set_mode(
-            (1280, 720), flags=pygame.SRCALPHA | pygame.RESIZABLE
+        self._surface = pygame.display.set_mode(
+            (1280, 720), flags=pygame.RESIZABLE | pygame.DOUBLEBUF | pygame.OPENGL
         )
-        self.lighting_manager = LightingManager(self.world.chunk_manager)
-        self.chunk_render = ChunkRenderer(
-            self.world.chunk_manager,
-            self.tile_size,
-            self.screen,
-            self.lighting_manager,
+        self.gl_ctx = moderngl.create_context()
+        # self.lighting_manager = LightingManagerGL(self.world.chunk_manager, self.gl_ctx)
+        self.chunk_render = ChunkRendererGL(
+            ctx=self.gl_ctx,
+            chunk_manager=self.world.chunk_manager,
+            tile_size=self.tile_size,
+            screen=self._surface,  # draw to opengl surface directly since we re using gl
+            # self.lighting_manager,
         )
         self.player = Player(
             x=2,
-            y=260,
+            y=265,
             world=self.world,
-            screen=self.screen,
+            screen=self._surface,  # draw onto another surface since were using blit here for simplicity
             delta_t=1 / self.framerate,
         )
         self.clock = pygame.time.Clock()
@@ -65,11 +69,12 @@ class Game:
                 self.running = False
 
             self.player.update(delta_t)
+
             self.world.player_pos = self.player.xy
 
             self.world.update_chunk_cache()
 
-            self.chunk_render.render(self.player.x, self.player.y)
+            self.chunk_render.render(self.player.xy)
 
             self.player.draw()
 
@@ -95,10 +100,10 @@ class Game:
         chunk_x = self.world.chunk_manager.get_chunk_x(world_x)
 
         # Mark affected chunks dirty (include neighbors for light propagation)
-        self.lighting_manager.mark_chunks_dirty([chunk_x - 1, chunk_x, chunk_x + 1])
+        # self.lighting_manager.mark_chunks_dirty([chunk_x - 1, chunk_x, chunk_x + 1])
 
         # Mark renderer dirty
-        self.chunk_render.mark_lighting_dirty()
+        # self.chunk_render.mark_lighting_dirty()
 
     def on_exit(self):
         self.world.chunk_manager.shutdown()

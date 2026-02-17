@@ -14,6 +14,7 @@ from src.world import (
 )
 
 PLAYER_SPRITE = pygame.Surface((32, 64))
+PLAYER_SPRITE.fill((255, 255, 0))
 PX = pygame.Surface((4, 4))
 PX.fill((0, 255, 255))
 
@@ -276,7 +277,7 @@ class Player:
         self.velocity.y = value
 
     @property
-    def xy(self):
+    def xy(self) -> tuple[float, float]:
         return (self.x, self.y)
 
     @xy.setter
@@ -284,7 +285,7 @@ class Player:
         self.x, self.y = value
 
     @property
-    def vel_xy(self):
+    def vel_xy(self) -> tuple[float, float]:
         return (self.vel_x, self.vel_y)
 
     @vel_xy.setter
