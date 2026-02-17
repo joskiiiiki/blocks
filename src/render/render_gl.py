@@ -9,6 +9,7 @@ Performance improvements:
 - Texture atlas for efficient texture switching
 """
 
+import math
 import sys
 from typing import Optional, TypeAlias
 
@@ -18,7 +19,8 @@ import numpy.typing as npt
 import pygame
 
 from src import assets, shaders
-from src.blocks import BLOCK_ID_MASK, Block
+from src.blocks import BLOCK_ID_MASK, Block, BlockData
+from src.render.texture_atlas import TextureAtlas
 
 # from src.shaders import RENDER_FRAGMENT_SHADER, RENDER_VERTEX_SHADER
 from src.utils import camera_to_world
@@ -38,6 +40,8 @@ class ChunkRendererGL:
     instance_vbo: moderngl.Buffer
     instance_vao: moderngl.VertexArray
     vao: moderngl.VertexArray
+
+    atlas: TextureAtlas
 
     last_screen_size: tuple[int, int] | None = None
     cached_projection: bytes
@@ -63,28 +67,31 @@ class ChunkRendererGL:
         for name in self.program:
             print(f"\t{name}")
 
+        self.atlas = TextureAtlas(self.ctx, self.tile_size)
+        self.atlas.build()
+        tex_size = self.atlas.tile_size_normalized()
+
         quad_vertices = np.array(
             [
-                # tri 1
-                [0.0, 0.0],
-                [1.0, 0.0],
-                [1.0, 1.0],
-                # tri 2
-                [0.0, 0.0],
-                [1.0, 1.0],
-                [0.0, 1.0],
+                # x, y, u, v
+                [0.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, tex_size, 0.0],
+                [1.0, 1.0, tex_size, tex_size],
+                [0.0, 0.0, 0.0, 0.0],
+                [1.0, 1.0, tex_size, tex_size],
+                [0.0, 1.0, 0.0, tex_size],
             ],
             dtype="f4",
         )
         quad_vbo = self.ctx.buffer(quad_vertices.tobytes())
         self.instance_vbo = self.instance_vbo = self.ctx.buffer(
-            reserve=self.max_instances * 2 * 4  # vec2 of float -> 2 * 4 bytes
+            reserve=self.max_instances * 4 * 4  # vec4 of float -> 4 * 4
         )
         self.vao = self.ctx.vertex_array(
             self.program,
             [
-                (quad_vbo, "2f", "in_position"),
-                (self.instance_vbo, "2f/i", "in_world_pos"),
+                (quad_vbo, "2f 2f", "in_position", "in_uv"),
+                (self.instance_vbo, "2f 2f/i", "in_world_pos", "in_atlas_offset"),
             ],
         )
 
@@ -100,9 +107,8 @@ class ChunkRendererGL:
                 [0, 0, 0, 1],
             ],
             dtype="f4",
-        ).T
-
-        self.cached_projection = projection.tobytes()
+        )
+        self.cached_projection = projection.T.tobytes()
         self.last_screen_size = (screen_width, screen_height)
         print(f"Updated projection for {screen_width}x{screen_height}")
 
@@ -118,6 +124,8 @@ class ChunkRendererGL:
             tuple[
                 float,
                 float,
+                float,
+                float,
             ]
         ] = []
 
@@ -128,10 +136,12 @@ class ChunkRendererGL:
 
             base_x = chunk_x * self.chunk_manager.width
 
-            clip_x_min = int(lower_left[0]) - base_x
-            clip_x_max = int(upper_right[0]) - base_x + 1
-            clip_y_min = int(max(lower_left[1], 0))
-            clip_y_max = int(min(upper_right[1], self.chunk_manager.height - 1)) + 1
+            clip_x_min = math.floor(lower_left[0]) - base_x
+            clip_x_max = math.floor(upper_right[0]) - base_x + 1
+            clip_y_min = math.floor(max(lower_left[1], 0))
+            clip_y_max = (
+                math.floor(min(upper_right[1], self.chunk_manager.height - 1)) + 1
+            )
 
             range_x = range(
                 max(0, clip_x_min), min(self.chunk_manager.width, clip_x_max)
@@ -142,25 +152,27 @@ class ChunkRendererGL:
 
             for x in range_x:
                 for y in range_y:
-                    block = chunk.blocks[x, y]
-                    block_id = block & BLOCK_ID_MASK
+                    block: BlockData = chunk.blocks[x, y]
+                    block_id = int(block) & BLOCK_ID_MASK
                     if block_id == Block.AIR.value:
                         continue
 
                     world_x = base_x + x
                     world_y = y
 
+                    atlas_u, atlas_v = self.atlas.uv(block_id)
+
                     # Add block instance to instances list
-                    instances.append((world_x, world_y))
+                    instances.append((world_x, world_y, atlas_u, atlas_v))
 
         return np.array(instances, dtype=np.float32)
 
-    def render(self, camera_pos: tuple[float, float]):
+    def render(self, camera_pos: tuple[float, float], resolution: tuple[int, int]):
         """Render chunks using GPU-accelerated chunk renderer"""
         cam_x, cam_y = camera_pos
 
-        screen_width = self.screen.get_width()
-        screen_height = self.screen.get_height()
+        screen_width = resolution[0]
+        screen_height = resolution[1]
 
         blocks_x = int(screen_width / self.tile_size)
         blocks_y = int(screen_height / self.tile_size)
@@ -174,6 +186,8 @@ class ChunkRendererGL:
         max_chunk_x = self.chunk_manager.get_chunk_x(upper_right[0])
 
         self.chunk_manager.load_chunks_only(range(min_chunk_x, max_chunk_x + 1))
+
+        bx, by = math.floor(cam_x), math.floor(cam_y)
 
         instances = self.build_instances(
             min_chunk_x, max_chunk_x, lower_left, upper_right
@@ -206,6 +220,9 @@ class ChunkRendererGL:
         self.program["screen_size"] = (float(screen_width), float(screen_height))
         self.program["camera_pos"] = camera_pos
         self.program["tile_size"] = float(self.tile_size)
+        self.program["texture_atlas"] = 0  # bind to zero
+
+        self.atlas.texture.use(0)
 
         # Clear and render
         self.ctx.clear(*assets.COLOR_SKY.normalized)

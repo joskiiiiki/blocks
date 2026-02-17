@@ -7,6 +7,7 @@ asset_dir = pathlib.Path(__file__).parent.resolve()
 TILE_SIZE = 32
 UNKNOWN_BLOCK = pygame.Surface((TILE_SIZE, TILE_SIZE))
 UNKNOWN_BLOCK.fill(pygame.Color(255, 0, 255))
+
 HOTBAR = pygame.image.load(asset_dir / "hotbar.png")
 HOTBAR = pygame.transform.scale2x(HOTBAR)
 HOTBAR_SELECTED = pygame.image.load(asset_dir / "hotbar_selected.png")
@@ -33,8 +34,11 @@ class Textures:
         pass
 
     def get_texture(self, name: str) -> pygame.Surface:
-        texture = self._textures.get(name, UNKNOWN_BLOCK)
+        texture = self._textures.get(
+            name,
+        )
         if texture is None:
+            print(f"Texture '{name}' not found.")
             return UNKNOWN_BLOCK
         return texture
 

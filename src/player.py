@@ -35,7 +35,6 @@ class Player:
     hit_ceiling: bool = False
     sliding: bool = False
     slide_timer: float = 0
-    screen: pygame.Surface
     cursor_position: tuple[int, int] = (0, 0)
     cursor_position_world: tuple[float, float] = (0.0, 0.0)
     world: World
@@ -47,7 +46,6 @@ class Player:
         self,
         x: float,
         y: float,
-        screen: pygame.Surface,
         world: World,
         delta_t: Optional[float],
     ) -> None:
@@ -56,8 +54,7 @@ class Player:
         if delta_t is not None:
             self.delta_t = delta_t
 
-        self.screen = screen
-        self.hotbar = Hotbar(self.screen)
+        self.hotbar = Hotbar()
         self.world = world
         self.inventory.add_stack((Item.TORCH, 100))
 
@@ -65,7 +62,7 @@ class Player:
         if event.type == pygame.MOUSEWHEEL:
             self.hotbar.handle_scroll(event.y)
 
-    def handle_input(self) -> None:
+    def handle_input(self, resolution: tuple[int, int]) -> None:
         keys = pygame.key.get_pressed()
 
         self.vel_x = 0
@@ -109,8 +106,8 @@ class Player:
             self.y,
             self.cursor_position[0],
             self.cursor_position[1],
-            self.screen.width,
-            self.screen.height,
+            resolution[0],
+            resolution[1],
             TILE_SIZE,
         )
         if mouse_right:
@@ -150,10 +147,10 @@ class Player:
             if was_set:
                 self.inventory.increment_slot_count(self.hotbar.selected_slot, -1)
 
-    def update(self, delta_t: float) -> None:
+    def update(self, delta_t: float, resolution: tuple[int, int]) -> None:
         touching_blocks = self.get_touching_blocks()
         self.in_water = Block.WATER.value in touching_blocks
-        self.handle_input()
+        self.handle_input(resolution)
 
         if self.sliding:
             self.slide_timer -= 1
@@ -208,10 +205,10 @@ class Player:
 
         return touching_blocks
 
-    def draw(self) -> None:
-        x = self.screen.width // 2 - (1 - self.bounding_box.size.x) * TILE_SIZE / 2
-        y = self.screen.height // 2 - 64
-        self.screen.blit(PLAYER_SPRITE, (x, y))
+    def draw(self, surface: pygame.Surface, resolution: tuple[int, int]) -> None:
+        x = resolution[0] // 2 - (1 - self.bounding_box.size.x) * TILE_SIZE / 2
+        y = resolution[1] // 2 - 64
+        surface.blit(PLAYER_SPRITE, (x, y))
 
         pos_world = (
             math.floor(self.cursor_position_world[0]),
@@ -223,18 +220,18 @@ class Player:
             self.y,
             pos_world[0],
             pos_world[1],
-            self.screen.width,
-            self.screen.height,
+            resolution[0],
+            resolution[1],
             TILE_SIZE,
         )
 
-        self.screen.blit(
+        surface.blit(
             BLOCK_SELECTION,
             (pos_screen_x, pos_screen_y - TILE_SIZE),
             special_flags=pygame.BLEND_ALPHA_SDL2,
         )
 
-        self.hotbar.draw(self.screen, self.inventory.get_hotbar_slots())
+        self.hotbar.draw(surface, self.inventory.get_hotbar_slots())
 
     @property
     def position(self) -> pygame.Vector2:

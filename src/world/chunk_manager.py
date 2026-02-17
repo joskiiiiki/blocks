@@ -1,15 +1,17 @@
-import math
 import json
-from src.world.utils import smooth_mask_ce, smooth_caves_with_neighbors
+import math
+import os
+import pathlib
+import queue
+import threading
+from typing import Iterable, Optional
+
+import numpy as np
+
 from src.blocks import Block
 from src.world.chunk import Chunk, ChunkStatus
+from src.world.utils import smooth_caves_with_neighbors, smooth_mask_ce
 
-import queue
-import pathlib
-import os
-from typing import Optional, Iterable
-import threading
-import numpy as np
 
 class ChunkManager:
     """Thread-safe chunk manager with coordinated generation and decoration"""
@@ -510,6 +512,9 @@ class ChunkManager:
         """Convert world coordinates to chunk coordinates"""
         chunk_x = math.floor(x) // self.width
         local_x = x % self.width
+
+        assert local_x < 32
+        assert local_x >= 0
 
         if y < 0 or y >= self.height:
             return None

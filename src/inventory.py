@@ -105,24 +105,21 @@ KEY_TO_SLOT: dict[int, int] = {
 class Hotbar:
     selected_slot: int = 0
     slot_count: int = HOTBAR_SLOTS
-    screen: pygame.Surface
     slot_size_px: tuple[int, int]
     rim_size: int = HOTBAR_RIM
     font: pygame.font.Font
 
-    def position(self) -> tuple[int, int]:
-        x = (self.screen.width - HOTBAR.width) // 2
-        y = self.screen.height - HOTBAR.height
+    def position(self, resolution: tuple[int, int]) -> tuple[int, int]:
+        x = (resolution[0] - HOTBAR.width) // 2
+        y = resolution[1] - HOTBAR.height
         return x, y
 
-    def __init__(self, screen: pygame.Surface):
-        self.screen = screen
-
+    def __init__(self):
         self.slot_size_px = (HOTBAR.width // self.slot_count, HOTBAR.height)
         self.font = pygame.font.Font(None, 16)
 
     def draw(self, screen: pygame.Surface, slots: Iterable[Stack | None]):
-        position = self.position()
+        position = self.position(screen.get_size())
         screen.blit(HOTBAR, position)
 
         for i, slot in enumerate(slots):

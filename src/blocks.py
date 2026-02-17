@@ -40,6 +40,7 @@ class Block(Enum):
         name = BLOCK_TEXTURES[self.value]
         if not name:
             return None
+        print(assets.TEXTURES)
         return assets.TEXTURES.get_texture(name)
 
     def get_item(self) -> Item | None:
@@ -47,6 +48,10 @@ class Block(Enum):
         if id:
             return Item(id)
         return None
+
+    @property
+    def id(self) -> int:
+        return self.value
 
 
 BLOCK_TEXTURES: dict[int, str | None] = {
