@@ -1,9 +1,11 @@
-# lighting_gl.py - GPU-Accelerated Lighting with Compute Shaders (COMPLETE)
+# lighting.py - GPU-Accelerated Lighting with Compute Shaders (FIXED)
 
 """
 GPU-based lighting system using compute shaders.
 Much faster than CPU implementation - can handle 100k+ blocks in <1ms.
 Uses ping-pong buffers to properly propagate light across iterations.
+
+FIXED: Proper coordinate system handling - transposes arrays to match OpenGL texture layout.
 """
 
 import moderngl
@@ -11,91 +13,8 @@ import numpy as np
 import numpy.typing as npt
 
 from src.blocks import BLOCK_ID_MASK, Block
+from src.shaders import LIGHTING_COMPUTE_SHADER
 from src.world import ChunkManager
-
-# Light propagation compute shader with ping-pong buffers
-LIGHT_PROPAGATION_SHADER = """
-#version 430
-
-layout(local_size_x = 16, local_size_y = 16) in;
-
-// INPUT (read only)
-layout(rgba32f, binding = 0) uniform readonly image2D light_map_in;
-layout(r8ui, binding = 1) uniform readonly uimage2D block_map;
-layout(rgba32f, binding = 2) uniform readonly image2D light_sources;
-
-// OUTPUT (write only)
-layout(rgba32f, binding = 3) uniform writeonly image2D light_map_out;
-
-uniform int width;
-uniform int height;
-uniform float falloff_air;
-uniform float falloff_solid;
-uniform float falloff_diagonal;
-
-// Check if block is transparent
-bool is_transparent(uint block_id) {
-    return block_id == 0u || block_id == 6u;  // AIR=0, WATER=6
-}
-
-void main() {
-    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-
-    if (pos.x >= width || pos.y >= height) {
-        return;
-    }
-
-    // Read from INPUT texture
-    vec4 current_light = imageLoad(light_map_in, pos);
-    vec4 new_light = current_light;
-
-    // Get block transparency
-    uint block_id = imageLoad(block_map, pos).r;
-    bool transparent = is_transparent(block_id);
-    float falloff = transparent ? falloff_air : falloff_solid;
-
-    // Propagate from all 8 neighbors (reading from INPUT)
-    for (int dx = -1; dx <= 1; dx++) {
-        for (int dy = -1; dy <= 1; dy++) {
-            if (dx == 0 && dy == 0) continue;
-
-            ivec2 neighbor_pos = pos + ivec2(dx, dy);
-
-            // Bounds check
-            if (neighbor_pos.x < 0 || neighbor_pos.x >= width ||
-                neighbor_pos.y < 0 || neighbor_pos.y >= height) {
-                continue;
-            }
-
-            // Get neighbor light
-            vec4 neighbor_light = imageLoad(light_map_in, neighbor_pos);
-
-            // Calculate falloff (diagonal neighbors have more falloff)
-            float current_falloff = falloff;
-            if (dx != 0 && dy != 0) {
-                current_falloff *= falloff_diagonal;
-            }
-
-            // Propagate light
-            vec4 propagated = neighbor_light - vec4(current_falloff);
-            propagated = max(propagated, vec4(0.0));
-
-            // Take max
-            new_light = max(new_light, propagated);
-        }
-    }
-
-    // Restore light sources (they never dim)
-    vec4 source = imageLoad(light_sources, pos);
-    new_light = max(new_light, source);
-
-    // Clamp to [0, 1]
-    new_light = clamp(new_light, vec4(0.0), vec4(1.0));
-
-    // Write to OUTPUT texture
-    imageStore(light_map_out, pos, new_light);
-}
-"""
 
 # Constants
 SUN_LIGHT = (1.0, 1.0, 1.0)
@@ -126,53 +45,72 @@ class LightingManagerGL:
 
         # Compile compute shader
         print("Compiling lighting compute shader...")
-        self.compute_program = self.ctx.compute_shader(LIGHT_PROPAGATION_SHADER)
+        self.compute_program = self.ctx.compute_shader(LIGHTING_COMPUTE_SHADER)
         print("✓ Lighting compute shader compiled")
 
     def _build_light_sources(
         self, blocks: npt.NDArray[np.uint16]
     ) -> npt.NDArray[np.float32]:
-        """Build light source map (sunlight + block lights)"""
-        width, height = blocks.shape
-        light_sources = np.zeros((width, height, 4), dtype=np.float32)
+        """Build light source map (sunlight + block lights)
 
-        # Add sunlight (from top down through transparent blocks)
+        Args:
+            blocks: Block array in [width, height] format (NOT transposed yet)
+
+        Returns:
+            Light source array in [width, height, 4] format
+        """
+        width, height = blocks.shape
+        lightmap = np.zeros((width, height, 4), dtype=np.float32)
+
+        torch_count = 0
+
+        # SUNLIGHT: Fill from top downward through transparent blocks
         for x in range(width):
-            transparent_idx = None
-            for y in range(height):
-                block_id = int(blocks[x, y]) & BLOCK_ID_MASK
+            for y in range(height - 1, -1, -1):  # Top to bottom
+                block_id = blocks[x, y] & BLOCK_ID_MASK
 
                 if block_id in TRANSPARENT_BLOCKS:
-                    if transparent_idx is None:
-                        transparent_idx = y
-                    continue
+                    # Fill with sunlight
+                    lightmap[x, y, 0] = SUN_LIGHT[0]
+                    lightmap[x, y, 1] = SUN_LIGHT[1]
+                    lightmap[x, y, 2] = SUN_LIGHT[2]
                 else:
-                    transparent_idx = None
+                    # Hit solid block, stop this column
+                    break
 
-                # Add block light if it emits
+        # BLOCK LIGHTS: Add torches, lava, etc.
+        for x in range(width):
+            for y in range(height):
+                block_id = blocks[x, y] & BLOCK_ID_MASK
                 if block_id in BLOCK_LIGHTS:
                     r, g, b = BLOCK_LIGHTS[block_id]
-                    light_sources[x, y, 0] = r
-                    light_sources[x, y, 1] = g
-                    light_sources[x, y, 2] = b
-                    light_sources[x, y, 3] = 1.0
+                    # Use max to not override brighter sunlight
+                    lightmap[x, y, 0] = max(lightmap[x, y, 0], r)
+                    lightmap[x, y, 1] = max(lightmap[x, y, 1], g)
+                    lightmap[x, y, 2] = max(lightmap[x, y, 2], b)
+                    torch_count += 1
+                    print(
+                        f"  Found light source at ({x}, {y}) with RGB ({r:.2f}, {g:.2f}, {b:.2f})"
+                    )
 
-            # Fill sunlight from first transparent block to top
-            if transparent_idx is not None:
-                light_sources[x, transparent_idx:, 0] = SUN_LIGHT[0]
-                light_sources[x, transparent_idx:, 1] = SUN_LIGHT[1]
-                light_sources[x, transparent_idx:, 2] = SUN_LIGHT[2]
-                light_sources[x, transparent_idx:, 3] = 1.0
+        non_zero = np.count_nonzero(lightmap[:, :, 0])
+        print(f"  Light sources: {torch_count} torches, {non_zero} total lit pixels")
 
-        return light_sources
+        return lightmap
 
     def calculate_lighting_region(
-        self, chunk_x_min: int, chunk_x_max: int, iterations: int = 10
+        self, chunk_x_min: int, chunk_x_max: int, iterations: int = 16
     ):
-        """Calculate lighting across multiple chunks using GPU with ping-pong buffers"""
+        """Calculate lighting across multiple chunks using GPU with ping-pong buffers
+
+        Args:
+            chunk_x_min: Minimum chunk X coordinate
+            chunk_x_max: Maximum chunk X coordinate
+            iterations: Number of propagation iterations (increase for larger areas)
+        """
         print(f"Calculating GPU lighting for chunks {chunk_x_min} to {chunk_x_max}")
 
-        # Stitch chunks together
+        # Stitch chunks together horizontally
         combined_blocks = []
         for chunk_x in range(chunk_x_min, chunk_x_max + 1):
             chunk = self.chunk_manager.get_chunk_from_cache(chunk_x)
@@ -183,47 +121,65 @@ class LightingManagerGL:
             print("  No chunks to light")
             return
 
-        combined = np.concatenate(combined_blocks, axis=0)
-        width, height = combined.shape
+        # Concatenate along X axis (chunks side-by-side)
+        combined = np.concatenate(combined_blocks, axis=0)  # [total_width, height]
 
-        print(f"  Combined size: {width}x{height}")
+        print(f"  Combined shape (numpy): {combined.shape} [width, height]")
 
-        # Build light sources
+        # Get dimensions
+        np_width, np_height = combined.shape
+
+        # Build light sources BEFORE transposing
         light_sources = self._build_light_sources(combined)
 
-        # Create block ID map (8-bit uint)
+        # Create block ID map
         block_ids = (combined & BLOCK_ID_MASK).astype(np.uint8)
 
-        # Flip Y for OpenGL
-        block_ids = np.flip(block_ids, axis=1).copy()
-        light_sources_flipped = np.flip(light_sources, axis=1).copy()
+        # CRITICAL: Transpose to match OpenGL texture coordinate system
+        # OpenGL textures are (width, height) but numpy arrays are [rows, cols]
+        # We need to transpose so that:
+        #   - GPU X coordinate = numpy axis 0 (world X)
+        #   - GPU Y coordinate = numpy axis 1 (world Y)
+        block_ids_transposed = block_ids.T  # Now [height, width]
+        light_sources_transposed = np.transpose(
+            light_sources, (1, 0, 2)
+        )  # [height, width, 4]
+
+        # OpenGL texture dimensions (width, height)
+        tex_width = np_width  # World X dimension
+        tex_height = np_height  # World Y dimension
+
+        print(f"  GPU texture size: {tex_width}x{tex_height} (width x height)")
 
         # Upload to GPU
         # Block map: R8UI (single channel, 8-bit unsigned int)
         block_texture = self.ctx.texture(
-            (width, height),
+            (tex_width, tex_height),
             1,  # Single component
-            data=block_ids.tobytes(),
-            dtype="u1",  # unsigned byte
+            data=block_ids_transposed.tobytes(),
+            dtype="u1",
         )
 
         # Light source map: RGBA32F (4 components, 32-bit float)
         light_source_texture = self.ctx.texture(
-            (width, height), 4, data=light_sources_flipped.tobytes(), dtype="f4"
+            (tex_width, tex_height),
+            4,
+            data=light_sources_transposed.tobytes(),
+            dtype="f4",
         )
 
-        # PING-PONG: Create TWO light map textures
+        # Create ping-pong buffers
         light_map_a = self.ctx.texture(
-            (width, height),
+            (tex_width, tex_height),
             4,
-            data=light_sources_flipped.tobytes(),  # Start with sources
+            data=light_sources_transposed.tobytes(),  # Start with sources
             dtype="f4",
         )
 
         light_map_b = self.ctx.texture(
-            (width, height),
+            (tex_width, tex_height),
             4,
-            data=light_sources_flipped.tobytes(),  # Start with sources
+            data=np.zeros((tex_height, tex_width, 4), dtype=np.float32).tobytes(),
             dtype="f4",
         )
 
@@ -232,59 +188,65 @@ class LightingManagerGL:
         light_source_texture.bind_to_image(2, read=True, write=False)
 
         # Set uniforms
-        self.compute_program["width"] = width
-        self.compute_program["height"] = height
-        self.compute_program["falloff_air"] = FALLOFF_AIR
-        self.compute_program["falloff_solid"] = FALLOFF_BLOCK
-        self.compute_program["falloff_diagonal"] = FALLOFF_DIAGONAL
+        self.compute_program["width"] = tex_width
+        self.compute_program["height"] = tex_height
 
-        # Calculate work groups
-        groups_x = (width + 15) // 16
-        groups_y = (height + 15) // 16
+        # Calculate work groups (16x16 threads per group)
+        groups_x = (tex_width + 15) // 16
+        groups_y = (tex_height + 15) // 16
 
-        print(
-            f"  Running {iterations} iterations (ping-pong) [{groups_x}x{groups_y} work groups]"
-        )
+        print(f"  Running {iterations} iterations [{groups_x}x{groups_y} work groups]")
 
-        # PING-PONG between textures
+        # PING-PONG propagation
         for i in range(iterations):
             if i % 2 == 0:
-                # Iteration even: Read from A, write to B
-                light_map_a.bind_to_image(0, read=True, write=False)  # input
-                light_map_b.bind_to_image(3, read=False, write=True)  # output
+                # Even iteration: Read from A, write to B
+                light_map_a.bind_to_image(0, read=True, write=False)
+                light_map_b.bind_to_image(3, read=False, write=True)
             else:
-                # Iteration odd: Read from B, write to A
-                light_map_b.bind_to_image(0, read=True, write=False)  # input
-                light_map_a.bind_to_image(3, read=False, write=True)  # output
+                # Odd iteration: Read from B, write to A
+                light_map_b.bind_to_image(0, read=True, write=False)
+                light_map_a.bind_to_image(3, read=False, write=True)
 
             # Run compute shader
             self.compute_program.run(groups_x, groups_y)
 
-            # Memory barrier ensures writes are visible to next iteration
+            # Memory barrier ensures writes complete before next iteration
             self.ctx.memory_barrier()
 
         # Final sync
         self.ctx.finish()
 
-        # Read from whichever texture has the final result
+        # Read back final result
         final_texture = light_map_b if iterations % 2 == 0 else light_map_a
         light_data = final_texture.read()
         light_map = np.frombuffer(light_data, dtype=np.float32).reshape(
-            width, height, 4
+            tex_height, tex_width, 4
         )
 
-        # Flip back and drop alpha channel
-        light_map = np.flip(light_map, axis=1).copy()
-        light_map = light_map[:, :, :3]  # Drop alpha, keep RGB
+        # Transpose back to numpy [width, height, channels] format
+        light_map = np.transpose(light_map, (1, 0, 2))  # [width, height, 4]
+        light_map = light_map[:, :, :3]  # Drop alpha channel, keep RGB
 
-        # Split back into chunks
+        print(f"  Result shape: {light_map.shape}")
+
+        # Split back into individual chunks
         chunk_width = self.chunk_manager.width
         for i, chunk_x in enumerate(range(chunk_x_min, chunk_x_max + 1)):
             start_x = i * chunk_width
             end_x = start_x + chunk_width
-            self.lightmaps[chunk_x] = light_map[start_x:end_x]
+            self.lightmaps[chunk_x] = light_map[start_x:end_x, :, :]
 
-        # Cleanup
+            # Debug: Check light values in this chunk
+            chunk_light = self.lightmaps[chunk_x]
+            max_light = chunk_light.max()
+            min_light = chunk_light.min()
+            avg_light = chunk_light.mean()
+            print(
+                f"  Chunk {chunk_x} light: min={min_light:.3f}, max={max_light:.3f}, avg={avg_light:.3f}"
+            )
+
+        # Cleanup GPU resources
         block_texture.release()
         light_source_texture.release()
         light_map_a.release()

@@ -221,9 +221,9 @@ class Chunk:
         if not np.any(stone_mask):
             return
 
-        cave_mask = stone_mask & (noise > noise_threshold) | (
+        cave_mask = stone_mask & ((noise > noise_threshold) | (
             worm_noise > worm_threshold
-        )
+        ))
 
         region[cave_mask] = Block.AIR.value
 

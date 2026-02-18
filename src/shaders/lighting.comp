@@ -1,0 +1,79 @@
+#version 430
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// INPUT (read only)
+layout(rgba32f, binding = 0) uniform readonly image2D light_map_in;
+layout(r8ui, binding = 1) uniform readonly uimage2D block_map;
+layout(rgba32f, binding = 2) uniform readonly image2D light_sources;
+
+// OUTPUT (write only)
+layout(rgba32f, binding = 3) uniform writeonly image2D light_map_out;
+
+uniform int width;
+uniform int height;
+
+const float FALLOFF_AIR = 1.0 / 8;
+const float FALLOFF_SOLID = 1.0 / 3.0;
+const float FALLOFF_DIAGONAL = 1.414213562; // sqrt(2)
+
+bool is_transparent(uint block_id) {
+    return block_id == 0u || block_id == 4u; // AIR=0, WATER=4
+}
+
+vec3 sample_neighbour(ivec2 npos, uint my_block_id) {
+    if (npos.x < 0 || npos.x >= width || npos.y < 0 || npos.y >= height)
+        return vec3(0.0);
+
+    uint neighbour_block_id = imageLoad(block_map, npos).r;
+    vec3 light = imageLoad(light_map_in, npos).rgb;
+
+    bool my_transparent = is_transparent(my_block_id);
+    bool neighbour_transparent = is_transparent(neighbour_block_id);
+
+    // Check if the neighbor is a light source (emitter)
+    vec3 neighbour_source = imageLoad(light_sources, npos).rgb;
+    bool neighbour_is_emitter = dot(neighbour_source, neighbour_source) > 0.0;
+
+    // Don't propagate from solid to transparent UNLESS neighbor is a light source
+    if (!neighbour_transparent && my_transparent && !neighbour_is_emitter) {
+        return vec3(0.0);
+    }
+    if (neighbour_is_emitter) {
+        return light;
+    }
+
+    // Determine falloff based on the receiving block
+    float falloff = my_transparent ? FALLOFF_AIR : FALLOFF_SOLID;
+
+    vec3 new_light = light * vec3(1 - falloff);
+    if new_light.length <= 1
+}
+
+void main() {
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+
+    if (pos.x >= width || pos.y >= height)
+        return;
+
+    uint my_block_id = imageLoad(block_map, pos).r;
+
+    // Get current light value
+    vec3 current = imageLoad(light_map_in, pos).rgb;
+
+    // Propagate from 4 cardinal neighbours
+    vec3 best = vec3(0.0);
+    best = max(best, sample_neighbour(pos + ivec2(-1, 0), my_block_id)); // left
+    best = max(best, sample_neighbour(pos + ivec2(1, 0), my_block_id)); // right
+    best = max(best, sample_neighbour(pos + ivec2(0, -1), my_block_id)); // up
+    best = max(best, sample_neighbour(pos + ivec2(0, 1), my_block_id)); // down
+
+    best = max(best, current);
+
+    // CRITICAL FIX: Light sources should be ADDED to propagated light, not replace it
+    // This allows sunlight to propagate while torches still emit
+    vec3 source = imageLoad(light_sources, pos).rgb;
+    best = max(best, source); // Take the brighter value
+
+    imageStore(light_map_out, pos, vec4(best, 1.0));
+}

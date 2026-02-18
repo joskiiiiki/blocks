@@ -7,7 +7,7 @@ import pygame
 from src import assets, blocks
 from src.assets import COLOR_SKY, TILE_SIZE
 from src.blocks import BLOCK_ID_MASK, Block
-from src.lighting import LightingManagerGL
+from src.render.lighting import LightingManagerGL
 from src.utils import camera_to_world, world_to_screen
 from src.world import ChunkManager
 

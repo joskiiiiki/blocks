@@ -151,6 +151,9 @@ class ChunkRendererGL:
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
             chunk = self.chunk_manager.get_chunk_from_cache(chunk_x)
 
+            if chunk is None:
+                continue
+
             lightmap = self.lighting_manager.get_lightmap(chunk_x)
 
             if lightmap is None:
@@ -158,8 +161,6 @@ class ChunkRendererGL:
                 continue
 
             # DEBUG: Check first light value
-            if len(instances) == 0:
-                print(f"First lightmap value: {lightmap[0, 0, :]}")
             base_x = chunk_x * self.chunk_manager.width
 
             clip_x_min = math.floor(lower_left[0]) - base_x
@@ -186,21 +187,23 @@ class ChunkRendererGL:
                     world_x = base_x + x
                     world_y = y
 
-                    if block_id == Block.WATER.value:
-                        if y == self.chunk_manager.height - 1:
-                            atlas_u, atlas_v = self.atlas.uv(
-                                Block.WATER.with_data((0, 1))
-                            )
-                        elif (
-                            chunk.blocks[x, y + 1] & BLOCK_ID_MASK != Block.WATER.value
-                        ):
-                            atlas_u, atlas_v = self.atlas.uv(
-                                Block.WATER.with_data((0, 1))
-                            )
-                        else:
-                            atlas_u, atlas_v = self.atlas.uv(Block.WATER.value)
-                    else:
-                        atlas_u, atlas_v = self.atlas.uv(block)
+                    match block_id:
+                        case Block.WATER.value:
+                            if y == self.chunk_manager.height - 1:
+                                atlas_u, atlas_v = self.atlas.uv(
+                                    Block.WATER.with_data((0, 1))
+                                )
+                            elif (
+                                chunk.blocks[x, y + 1] & BLOCK_ID_MASK
+                                != Block.WATER.value
+                            ):
+                                atlas_u, atlas_v = self.atlas.uv(
+                                    Block.WATER.with_data((0, 1))
+                                )
+                            else:
+                                atlas_u, atlas_v = self.atlas.uv(Block.WATER.value)
+                        case _:
+                            atlas_u, atlas_v = self.atlas.uv(block)
 
                     light_r = lightmap[x, y, 0]
                     light_g = lightmap[x, y, 1]
@@ -212,7 +215,6 @@ class ChunkRendererGL:
                     )
 
         instance_arr = np.array(instances, dtype=np.float32)
-        print(f"Instance array shape: {instance_arr.shape}")
 
         return instance_arr
 
@@ -240,7 +242,7 @@ class ChunkRendererGL:
 
         if self._should_update_lighting(current_chunks):
             self.lighting_manager.calculate_lighting_region(
-                min_chunk_x, max_chunk_x, iterations=10
+                min_chunk_x, max_chunk_x, iterations=16
             )
             self.last_lit_chunks = current_chunks
             self.lighting_dirty = False
