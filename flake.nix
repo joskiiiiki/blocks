@@ -54,7 +54,7 @@
             pythonPackages.pytest
             pythonPackages.moderngl
             pythonPackages.pyopengl
-            pythonPackages.moderngl-window
+            # pythonPackages.moderngl-window
             fastnoiselite
             pkgs.ty
             pkgs.pyright
