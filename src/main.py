@@ -6,6 +6,7 @@ import pygame
 from src import assets
 from src.player import Player
 from src.render import ChunkRendererGL, PygameOverlay
+from src.render.lighting import LightingManagerGL
 from src.world import World, world_path
 
 FONT_SIZE = 24
@@ -15,6 +16,7 @@ class Game:
     framerate = 60
     world: World
     chunk_render: ChunkRendererGL
+    lighting_manager: LightingManagerGL
     resolution: tuple[int, int] = (1280, 720)
     tile_size: int = 32
     _screen: pygame.Surface  # actual screen surface under opengl - dont blit to this
@@ -35,12 +37,13 @@ class Game:
         assets.TEXTURES.load()
         self.ctx = moderngl.create_context()
         # self.lighting_manager = LightingManagerGL(self.world.chunk_manager, self.gl_ctx)
+        self.lighting_manager = LightingManagerGL(self.world.chunk_manager, self.ctx)
         self.chunk_render = ChunkRendererGL(
             ctx=self.ctx,
             chunk_manager=self.world.chunk_manager,
             tile_size=self.tile_size,
             screen=self._screen,  # draw to opengl surface directly since we re using gl
-            # self.lighting_manager,
+            lighting_manager=self.lighting_manager,
         )
         self.overlay = PygameOverlay(self.ctx, self.resolution)
 

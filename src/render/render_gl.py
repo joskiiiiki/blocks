@@ -20,6 +20,7 @@ import pygame
 
 from src import assets, shaders
 from src.blocks import BLOCK_ID_MASK, Block, BlockData
+from src.render.lighting import LightingManagerGL
 from src.render.texture_atlas import TextureAtlas
 
 # from src.shaders import RENDER_FRAGMENT_SHADER, RENDER_VERTEX_SHADER
@@ -46,12 +47,17 @@ class ChunkRendererGL:
     last_screen_size: tuple[int, int] | None = None
     cached_projection: bytes
 
+    lighting_manager: LightingManagerGL
+    lighting_dirty: bool = False
+    last_lit_chunks: set[int] = set()
+
     def __init__(
         self,
         ctx: moderngl.Context,
         chunk_manager: ChunkManager,
         tile_size: int,
         screen: pygame.Surface,
+        lighting_manager: LightingManagerGL,
     ):
         self.ctx = ctx
         self.chunk_manager = chunk_manager
@@ -84,16 +90,26 @@ class ChunkRendererGL:
             dtype="f4",
         )
         quad_vbo = self.ctx.buffer(quad_vertices.tobytes())
-        self.instance_vbo = self.instance_vbo = self.ctx.buffer(
-            reserve=self.max_instances * 4 * 4  # vec4 of float -> 4 * 4
+        self.instance_vbo = self.ctx.buffer(
+            reserve=self.max_instances
+            * 7
+            * 4  # vec2 for position + vec2 for atlas offset + vec3 for lighting
         )
         self.vao = self.ctx.vertex_array(
             self.program,
             [
                 (quad_vbo, "2f 2f", "in_position", "in_uv"),
-                (self.instance_vbo, "2f 2f/i", "in_world_pos", "in_atlas_offset"),
+                (
+                    self.instance_vbo,
+                    "2f 2f 3f/i",
+                    "in_world_pos",
+                    "in_atlas_offset",
+                    "in_light",
+                ),
             ],
         )
+
+        self.lighting_manager = lighting_manager
 
     def update_projection(self, screen_width: int, screen_height: int):
         if self.last_screen_size == (screen_width, screen_height):
@@ -122,18 +138,28 @@ class ChunkRendererGL:
         # Build instances for rendering chunks
         instances: list[
             tuple[
-                float,
-                float,
-                float,
-                float,
+                float,  # world_x
+                float,  # world_y
+                float,  # atlas_u
+                float,  # atlas_v
+                float,  # light_r
+                float,  # light_g
+                float,  # light_b
             ]
         ] = []
 
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
             chunk = self.chunk_manager.get_chunk_from_cache(chunk_x)
-            if chunk is None:
+
+            lightmap = self.lighting_manager.get_lightmap(chunk_x)
+
+            if lightmap is None:
+                print(f"WARNING: No lightmap for chunk {chunk_x}!")
                 continue
 
+            # DEBUG: Check first light value
+            if len(instances) == 0:
+                print(f"First lightmap value: {lightmap[0, 0, :]}")
             base_x = chunk_x * self.chunk_manager.width
 
             clip_x_min = math.floor(lower_left[0]) - base_x
@@ -160,12 +186,35 @@ class ChunkRendererGL:
                     world_x = base_x + x
                     world_y = y
 
-                    atlas_u, atlas_v = self.atlas.uv(block_id)
+                    if block_id == Block.WATER.value:
+                        if y == self.chunk_manager.height - 1:
+                            atlas_u, atlas_v = self.atlas.uv(
+                                Block.WATER.with_data((0, 1))
+                            )
+                        elif (
+                            chunk.blocks[x, y + 1] & BLOCK_ID_MASK != Block.WATER.value
+                        ):
+                            atlas_u, atlas_v = self.atlas.uv(
+                                Block.WATER.with_data((0, 1))
+                            )
+                        else:
+                            atlas_u, atlas_v = self.atlas.uv(Block.WATER.value)
+                    else:
+                        atlas_u, atlas_v = self.atlas.uv(block)
+
+                    light_r = lightmap[x, y, 0]
+                    light_g = lightmap[x, y, 1]
+                    light_b = lightmap[x, y, 2]
 
                     # Add block instance to instances list
-                    instances.append((world_x, world_y, atlas_u, atlas_v))
+                    instances.append(
+                        (world_x, world_y, atlas_u, atlas_v, light_r, light_g, light_b)
+                    )
 
-        return np.array(instances, dtype=np.float32)
+        instance_arr = np.array(instances, dtype=np.float32)
+        print(f"Instance array shape: {instance_arr.shape}")
+
+        return instance_arr
 
     def render(self, camera_pos: tuple[float, float], resolution: tuple[int, int]):
         """Render chunks using GPU-accelerated chunk renderer"""
@@ -185,9 +234,16 @@ class ChunkRendererGL:
         min_chunk_x = self.chunk_manager.get_chunk_x(lower_left[0])
         max_chunk_x = self.chunk_manager.get_chunk_x(upper_right[0])
 
-        self.chunk_manager.load_chunks_only(range(min_chunk_x, max_chunk_x + 1))
+        to_update = range(min_chunk_x, max_chunk_x + 1)
+        self.chunk_manager.load_chunks_only(to_update)
+        current_chunks = set(to_update)
 
-        bx, by = math.floor(cam_x), math.floor(cam_y)
+        if self._should_update_lighting(current_chunks):
+            self.lighting_manager.calculate_lighting_region(
+                min_chunk_x, max_chunk_x, iterations=10
+            )
+            self.last_lit_chunks = current_chunks
+            self.lighting_dirty = False
 
         instances = self.build_instances(
             min_chunk_x, max_chunk_x, lower_left, upper_right
@@ -228,3 +284,10 @@ class ChunkRendererGL:
         self.ctx.clear(*assets.COLOR_SKY.normalized)
 
         self.vao.render(moderngl.TRIANGLES, instances=num_instances)
+
+    def _should_update_lighting(self, current_chunks: set[int]) -> bool:
+        return self.lighting_dirty or self.last_lit_chunks != current_chunks
+
+    def mark_lighting_dirty(self):
+        """Call when blocks change"""
+        self.lighting_dirty = True

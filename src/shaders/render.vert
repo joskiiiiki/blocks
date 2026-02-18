@@ -5,13 +5,15 @@ in vec2 in_position;
 in vec2 in_uv;
 in vec2 in_world_pos;
 in vec2 in_atlas_offset;
+in vec3 in_light; // ADD THIS
 
 uniform mat4 projection;
 uniform vec2 screen_size;
 uniform float tile_size;
 uniform vec2 camera_pos;
 
-out vec2 v_texcoord;
+out vec2 v_uv;
+out vec3 v_light;
 
 void main() {
     vec2 world_tile = in_world_pos + in_position;
@@ -22,6 +24,6 @@ void main() {
 
     gl_Position = projection * vec4(screen_pos, 0.0, 1.0);
 
-    // Pass texture coordinates (offset by atlas position)
-    v_texcoord = in_uv + in_atlas_offset;
+    v_uv = in_uv + in_atlas_offset; // pass uv coordinates
+    v_light = in_light; // pass light data
 }

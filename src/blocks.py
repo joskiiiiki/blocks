@@ -9,7 +9,8 @@ import pygame
 from src import assets
 
 BlockData: TypeAlias = np.uint32  # Changed from uint64 to match actual usage
-BLOCK_ID_MASK = 0xFF
+BLOCK_ID_MASK = 0b1111_1111
+BLOCK_DATA_MASK = 2 * 32 - 1 - BLOCK_ID_MASK
 
 
 class Block(Enum):
@@ -30,14 +31,27 @@ class Block(Enum):
         return self.name
 
     @staticmethod
-    def get_texture_from_id(block_id: int) -> pygame.Surface | None:
-        name = BLOCK_TEXTURES[block_id]
+    def get_texture_from_id(block_data: int) -> pygame.Surface | None:
+        name = BLOCK_TO_TEXTURE[block_data]
         if not name:
             return None
         return assets.TEXTURES.get_texture(name)
 
+    def get_texture_name(self) -> str | None:
+        name = BLOCK_TO_TEXTURE.get(self.value)
+        return name
+
+    @staticmethod
+    def get_tex_name_from_data(data: int) -> str | None:
+        name = BLOCK_TO_TEXTURE.get(data)
+        return name
+
+    def with_data(self, *data: tuple[int, int]) -> int:
+        d = [d[1] << d[0] for d in data]
+        return self.value | sum(d) << 8
+
     def get_texture(self) -> pygame.Surface | None:
-        name = BLOCK_TEXTURES[self.value]
+        name = BLOCK_TO_TEXTURE[self.value]
         if not name:
             return None
         print(assets.TEXTURES)
@@ -54,17 +68,19 @@ class Block(Enum):
         return self.value
 
 
-BLOCK_TEXTURES: dict[int, str | None] = {
+BLOCK_TO_TEXTURE: dict[int, str | None] = {
     Block.AIR.value: None,
     Block.STONE.value: "stone",
     Block.DIRT.value: "dirt",
     Block.GRASS.value: "grass",
     Block.WATER.value: "water",
+    (Block.WATER.with_data((0, 1))): "water_top",
     Block.LOG.value: "log",
     Block.LEAVES.value: "leaves",
     Block.UNKNOWN.value: "unknown",
     Block.TORCH.value: "torch",
 }
+
 
 NONCOLLIDABLE_BLOCKS = {Block.AIR.value, Block.WATER.value, Block.TORCH.value}
 

@@ -38,7 +38,6 @@ class Textures:
             name,
         )
         if texture is None:
-            print(f"Texture '{name}' not found.")
             return UNKNOWN_BLOCK
         return texture
 

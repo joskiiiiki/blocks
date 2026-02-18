@@ -3,32 +3,36 @@ import math
 import moderngl
 import pygame
 
-from src.blocks import Block
+from src.assets import TEXTURES
+from src.blocks import BLOCK_TO_TEXTURE, Block
 
 
 class TextureAtlas:
     ctx: moderngl.Context
     tile_size: int
-    block_id_to_uv: dict[int, tuple[float, float]]
+    texture_name_to_uv: dict[str, tuple[float, float]]
     atlas_size: int  # we do a square texture atlas - why tho TODO: check if rectangular is better
 
     def __init__(self, ctx: moderngl.Context, tile_size: int):
         self.ctx = ctx
         self.tile_size = tile_size
-        self.block_id_to_uv = {}
+        self.texture_name_to_uv = {}
 
     def build(self) -> moderngl.Texture | None:
         textures: list[pygame.Surface] = []
-        block_ids: list[int] = []
+        texture_names: list[str] = []
 
-        for block in Block:
-            tex = block.get_texture()
+        for key, texture in BLOCK_TO_TEXTURE.items():
+            if texture is None:
+                continue
+
+            tex = TEXTURES.get_texture(texture)
 
             if tex is None:
                 continue
 
             textures.append(tex)
-            block_ids.append(block.id)
+            texture_names.append(texture)
 
         if len(textures) == 0:
             print("WARNING: No textures found")
@@ -47,7 +51,7 @@ class TextureAtlas:
         atlas_surface = pygame.Surface((atlas_width, atlas_height), pygame.SRCALPHA)
         atlas_surface.fill((0, 0, 0, 0))
 
-        for i, (texture, block_id) in enumerate(zip(textures, block_ids)):
+        for i, (texture, tex_name) in enumerate(zip(textures, texture_names)):
             col = i % self.atlas_size
             row = i // self.atlas_size
 
@@ -62,7 +66,7 @@ class TextureAtlas:
             u = x / atlas_width
             v = y / atlas_height
 
-            self.block_id_to_uv[block_id] = (u, v)
+            self.texture_name_to_uv[tex_name] = (u, v)
 
         pygame.image.save(atlas_surface, "atlas.png")
         # flip the atlas vertically
@@ -82,10 +86,20 @@ class TextureAtlas:
 
         return self.texture
 
-    def uv(self, block_id) -> tuple[float, float]:
-        uv = self.block_id_to_uv.get(block_id)
+    def get_unknown_uv(self) -> tuple[float, float]:
+        unknown_texture = Block.UNKNOWN.get_texture_name()
+        if unknown_texture is None:
+            return (0.0, 0.0)
+        return self.texture_name_to_uv.get(unknown_texture, (0.0, 0.0))
+
+    def uv(self, block_data: int) -> tuple[float, float]:
+        texture_name = BLOCK_TO_TEXTURE.get(block_data)
+        if texture_name is None:
+            return self.get_unknown_uv()
+
+        uv = self.texture_name_to_uv.get(texture_name)
         if uv is None:
-            return self.block_id_to_uv.get(Block.UNKNOWN.id, (0.0, 0.0))
+            return self.get_unknown_uv()
 
         return uv[0], uv[1]
 
