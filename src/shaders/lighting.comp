@@ -16,6 +16,7 @@ uniform int height;
 const float FALLOFF_AIR = 1.0 / 8;
 const float FALLOFF_SOLID = 1.0 / 3.0;
 const float FALLOFF_DIAGONAL = 1.414213562; // sqrt(2)
+const float BLACK_TRESHOLD = pow((1 - FALLOFF_AIR), 15);
 
 bool is_transparent(uint block_id) {
     return block_id == 0u || block_id == 4u; // AIR=0, WATER=4
@@ -46,8 +47,11 @@ vec3 sample_neighbour(ivec2 npos, uint my_block_id) {
     // Determine falloff based on the receiving block
     float falloff = my_transparent ? FALLOFF_AIR : FALLOFF_SOLID;
 
-    vec3 new_light = light * vec3(1 - falloff);
-    if new_light.length <= 1
+    vec3 new_light = light * (1.0 - falloff);
+    if (length(new_light) <= BLACK_TRESHOLD) {
+        return vec3(0.0);
+    }
+    return new_light;
 }
 
 void main() {
@@ -70,8 +74,6 @@ void main() {
 
     best = max(best, current);
 
-    // CRITICAL FIX: Light sources should be ADDED to propagated light, not replace it
-    // This allows sunlight to propagate while torches still emit
     vec3 source = imageLoad(light_sources, pos).rgb;
     best = max(best, source); // Take the brighter value
 
