@@ -5,7 +5,7 @@ from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt
-from pyfastnoiselite.pyfastnoiselite import FractalType  # ty:ignore[unresolved-import]
+from pyfastnoiselite.pyfastnoiselite import FractalType, NoiseType  # ty:ignore[unresolved-import]
 
 from src.blocks import BLOCK_ID_MASK, Block, BlockData, is_solid
 from src.world.gen_context import WorldGenContext
@@ -168,12 +168,12 @@ class Chunk:
     def generate_caves(
         self,
         ctx: WorldGenContext,
-        noise_scale: float = 0.03,
-        noise_scale_aspect: float = 4,
+        noise_scale: float = 0.015,
+        noise_scale_aspect: float = 3,
         noise_threshold: float = 0.15,
         worm_scale: float = 0.04,
         worm_scale_aspect: float = 3,
-        worm_threshold: float = 0.1,
+        worm_threshold: float = 0.2,
         min_cave_y: int = 20,
         max_cave_y: int = 250,
     ):
@@ -203,6 +203,7 @@ class Chunk:
 
         # Generate cave noise
         ctx.noise.frequency = noise_scale  # Assuming equal x/y scaling
+        ctx.noise.noise_type = NoiseType.NoiseType_Perlin
         ctx.noise.fractal_type = (
             FractalType.FractalType_None
         )  # Disable fractal for caves
@@ -221,9 +222,7 @@ class Chunk:
         if not np.any(stone_mask):
             return
 
-        cave_mask = stone_mask & ((noise > noise_threshold) | (
-            worm_noise > worm_threshold
-        ))
+        cave_mask = stone_mask & ((noise > noise_threshold) | ( worm_noise > worm_threshold))
 
         region[cave_mask] = Block.AIR.value
 

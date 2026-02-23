@@ -21,7 +21,7 @@ class WorldGenContext:
         self.noise = FastNoiseLite(seed=self.seed)
 
         # Configure base noise settings
-        self.noise.noise_type = NoiseType.NoiseType_Perlin
+        self.noise.noise_type = NoiseType.NoiseType_OpenSimplex2
         self.noise.fractal_type = FractalType.FractalType_FBm
 
     def fractal_noise_1d(
@@ -36,6 +36,8 @@ class WorldGenContext:
     ):
         """Generate 1D fractal noise using FastNoiseLite built-in fractal"""
         # Configure fractal parameters
+        
+        self.noise.noise_type = NoiseType.NoiseType_OpenSimplex2
         self.noise.fractal_octaves = octaves
         self.noise.fractal_lacunarity = lacunarity
         self.noise.fractal_gain = persistence  # gain = persistence

@@ -13,8 +13,8 @@ layout(rgba32f, binding = 3) uniform writeonly image2D light_map_out;
 uniform int width;
 uniform int height;
 
-const float FALLOFF_AIR = 1.0 / 12;
-const float FALLOFF_SOLID = 1.0 / 3.0;
+const float FALLOFF_AIR = 1.0 / 16.0;
+const float FALLOFF_SOLID = 0.4;
 const float FALLOFF_DIAGONAL = 1.414213562; // sqrt(2)
 const float BLACK_TRESHOLD = pow((1 - FALLOFF_AIR), 15);
 

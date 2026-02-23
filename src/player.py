@@ -127,7 +127,7 @@ class Player:
 
         # not in break progress or block is different => new process
         if self.break_progress is None or self.break_progress[2:4] != (x, y):
-            self.break_progress = (1.0, time(), x, y)
+            self.break_progress = (0.05, time(), x, y)
             return False
 
         duration = self.break_progress[0]
