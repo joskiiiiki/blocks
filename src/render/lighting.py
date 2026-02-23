@@ -10,6 +10,7 @@ FIXED: Proper coordinate system handling - transposes arrays to match OpenGL tex
 
 import moderngl
 import numpy as np
+from time import time
 import numpy.typing as npt
 
 from src.blocks import BLOCK_ID_MASK, Block
@@ -69,7 +70,7 @@ class LightingManagerGL:
             for y in range(height - 1, -1, -1):  # Top to bottom
                 block_id = blocks[x, y] & BLOCK_ID_MASK
 
-                if block_id in TRANSPARENT_BLOCKS:
+                if block_id == Block.AIR.value:
                     # Fill with sunlight
                     lightmap[x, y, 0] = SUN_LIGHT[0]
                     lightmap[x, y, 1] = SUN_LIGHT[1]
@@ -130,8 +131,10 @@ class LightingManagerGL:
         np_width, np_height = combined.shape
 
         # Build light sources BEFORE transposing
+        t0 = time()
         light_sources = self._build_light_sources(combined)
-
+        t1  = time()
+        print(f"Buildings Lightsources: {t1 - t0}")
         # Create block ID map
         block_ids = (combined & BLOCK_ID_MASK).astype(np.uint8)
 
