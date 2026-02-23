@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Optional
 
 import pygame
+from time import time
 
 from src.assets import TILE_SIZE
 from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block, Item
@@ -41,6 +42,9 @@ class Player:
     inventory: Inventory = Inventory()
     hotbar: Hotbar
     in_water: bool = False
+
+    break_duration: float = 0.5
+    break_start: float | None = None
 
     def __init__(
         self,
@@ -122,6 +126,14 @@ class Player:
         self.vel_y += self.gravity * delta_t * multiplier
 
     def handle_left_click(self) -> None:
+        if self.break_start is None:
+            self.break_start = time()
+            return
+
+        delta_t = time() - self.break_start
+        if delta_t < self.break_duration:
+            return None
+        
         block = self.world.destroy_block(
             self.cursor_position_world[0],
             self.cursor_position_world[1],
@@ -131,6 +143,8 @@ class Player:
         item = block.get_item()
         if item:
             self.inventory.add_stack((item, 1))
+            
+        self.break_start = None
 
     def handle_right_click(self) -> None:
         item = self.inventory.get_slot(self.hotbar.selected_slot)

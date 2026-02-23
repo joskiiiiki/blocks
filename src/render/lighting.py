@@ -21,7 +21,7 @@ from src.world import ChunkManager
 SUN_LIGHT = (1.0, 1.0, 1.0)
 TRANSPARENT_BLOCKS = {Block.AIR.value, Block.WATER.value}
 BLOCK_LIGHTS = {
-    Block.TORCH.value: (0.8, 0.6, 0.4),
+    Block.TORCH.value: (1.0, 0.75, 0.5),
 }
 
 MAX_AIR_PROPAGATION = 16
@@ -52,50 +52,28 @@ class LightingManagerGL:
     def _build_light_sources(
         self, blocks: npt.NDArray[np.uint16]
     ) -> npt.NDArray[np.float32]:
-        """Build light source map (sunlight + block lights)
-
-        Args:
-            blocks: Block array in [width, height] format (NOT transposed yet)
-
-        Returns:
-            Light source array in [width, height, 4] format
-        """
         width, height = blocks.shape
         lightmap = np.zeros((width, height, 4), dtype=np.float32)
 
-        torch_count = 0
+        block_ids = (blocks & BLOCK_ID_MASK).astype(np.uint8)
 
-        # SUNLIGHT: Fill from top downward through transparent blocks
-        for x in range(width):
-            for y in range(height - 1, -1, -1):  # Top to bottom
-                block_id = blocks[x, y] & BLOCK_ID_MASK
+        # --- Sunlight ---
+        # For each column, find the first non-air block from the top
+        is_air = block_ids == Block.AIR.value  # [width, height]
 
-                if block_id == Block.AIR.value:
-                    # Fill with sunlight
-                    lightmap[x, y, 0] = SUN_LIGHT[0]
-                    lightmap[x, y, 1] = SUN_LIGHT[1]
-                    lightmap[x, y, 2] = SUN_LIGHT[2]
-                else:
-                    # Hit solid block, stop this column
-                    break
+        # cumprod from the top: stays True (1) until a non-air block is hit
+        sunlit = np.cumprod(is_air[:, ::-1], axis=1)[:, ::-1].astype(bool)  # [width, height]
 
-        # BLOCK LIGHTS: Add torches, lava, etc.
-        for x in range(width):
-            for y in range(height):
-                block_id = blocks[x, y] & BLOCK_ID_MASK
-                if block_id in BLOCK_LIGHTS:
-                    r, g, b = BLOCK_LIGHTS[block_id]
-                    # Use max to not override brighter sunlight
-                    lightmap[x, y, 0] = max(lightmap[x, y, 0], r)
-                    lightmap[x, y, 1] = max(lightmap[x, y, 1], g)
-                    lightmap[x, y, 2] = max(lightmap[x, y, 2], b)
-                    torch_count += 1
-                    print(
-                        f"  Found light source at ({x}, {y}) with RGB ({r:.2f}, {g:.2f}, {b:.2f})"
-                    )
+        lightmap[sunlit, 0] = SUN_LIGHT[0]
+        lightmap[sunlit, 1] = SUN_LIGHT[1]
+        lightmap[sunlit, 2] = SUN_LIGHT[2]
 
-        non_zero = np.count_nonzero(lightmap[:, :, 0])
-        print(f"  Light sources: {torch_count} torches, {non_zero} total lit pixels")
+        # --- Block lights (torches etc.) ---
+        for block_val, (r, g, b) in BLOCK_LIGHTS.items():
+            mask = block_ids == block_val
+            lightmap[:, :, 0] = np.where(mask, np.maximum(lightmap[:, :, 0], r), lightmap[:, :, 0])
+            lightmap[:, :, 1] = np.where(mask, np.maximum(lightmap[:, :, 1], g), lightmap[:, :, 1])
+            lightmap[:, :, 2] = np.where(mask, np.maximum(lightmap[:, :, 2], b), lightmap[:, :, 2])
 
         return lightmap
 
@@ -109,6 +87,7 @@ class LightingManagerGL:
             chunk_x_max: Maximum chunk X coordinate
             iterations: Number of propagation iterations (increase for larger areas)
         """
+        tt0 = time()
         print(f"Calculating GPU lighting for chunks {chunk_x_min} to {chunk_x_max}")
 
         # Stitch chunks together horizontally
@@ -135,14 +114,11 @@ class LightingManagerGL:
         light_sources = self._build_light_sources(combined)
         t1  = time()
         print(f"Buildings Lightsources: {t1 - t0}")
-        # Create block ID map
-        block_ids = (combined & BLOCK_ID_MASK).astype(np.uint8)
 
-        # CRITICAL: Transpose to match OpenGL texture coordinate system
-        # OpenGL textures are (width, height) but numpy arrays are [rows, cols]
-        # We need to transpose so that:
-        #   - GPU X coordinate = numpy axis 0 (world X)
-        #   - GPU Y coordinate = numpy axis 1 (world Y)
+        # Create block ID map
+        t0 = time()
+        block_ids = (combined & BLOCK_ID_MASK).astype(np.uint8)
+        
         block_ids_transposed = block_ids.T  # Now [height, width]
         light_sources_transposed = np.transpose(
             light_sources, (1, 0, 2)
@@ -152,7 +128,13 @@ class LightingManagerGL:
         tex_width = np_width  # World X dimension
         tex_height = np_height  # World Y dimension
 
+        t1 = time()
+
+        print("Transposing: ", t1 - t0)
+
         print(f"  GPU texture size: {tex_width}x{tex_height} (width x height)")
+
+        t0 = time()
 
         # Upload to GPU
         # Block map: R8UI (single channel, 8-bit unsigned int)
@@ -198,8 +180,13 @@ class LightingManagerGL:
         groups_x = (tex_width + 15) // 16
         groups_y = (tex_height + 15) // 16
 
+        t1 = time()
+        print("Uploading: ", t1 - t0)
+
         print(f"  Running {iterations} iterations [{groups_x}x{groups_y} work groups]")
 
+
+        t0 = time()
         # PING-PONG propagation
         for i in range(iterations):
             if i % 2 == 0:
@@ -219,6 +206,11 @@ class LightingManagerGL:
 
         # Final sync
         self.ctx.finish()
+        t1 = time()
+
+        print("Compute", t1 - t0)
+
+        t0 = time()
 
         # Read back final result
         final_texture = light_map_b if iterations % 2 == 0 else light_map_a
@@ -240,14 +232,9 @@ class LightingManagerGL:
             end_x = start_x + chunk_width
             self.lightmaps[chunk_x] = light_map[start_x:end_x, :, :]
 
-            # Debug: Check light values in this chunk
-            chunk_light = self.lightmaps[chunk_x]
-            max_light = chunk_light.max()
-            min_light = chunk_light.min()
-            avg_light = chunk_light.mean()
-            print(
-                f"  Chunk {chunk_x} light: min={min_light:.3f}, max={max_light:.3f}, avg={avg_light:.3f}"
-            )
+        t1 = time()
+
+        print("Transposing 2", t1 - t0)
 
         # Cleanup GPU resources
         block_texture.release()
@@ -255,7 +242,10 @@ class LightingManagerGL:
         light_map_a.release()
         light_map_b.release()
 
-        print(f"  ✓ GPU lighting complete")
+        tt1 = time()
+
+        print(f"  ✓ GPU lighting complete {tt1 - tt0}")
+        
 
     def get_lightmap(self, chunk_x: int) -> npt.NDArray[np.float32] | None:
         """Get lightmap for a chunk (returns None if not calculated)"""
