@@ -1,6 +1,5 @@
-import time
 import math
-from collections.abc import Callable
+from time import time
 from typing import Optional
 
 import pygame
@@ -9,7 +8,7 @@ from src.assets import TILE_SIZE
 from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block, Item
 from src.collision import BoundingBox, sweep_collision
 from src.inventory import Hotbar, Inventory
-from src.utils import screen_to_world, world_to_screen, to_block
+from src.utils import screen_to_world, to_block, world_to_screen
 from src.world import (
     World,
 )
@@ -42,7 +41,7 @@ class Player:
     inventory: Inventory = Inventory()
     hotbar: Hotbar
     in_water: bool = False
-    break_progress: tuple[float, float, int, int] | None = None # duration, start, x, y  
+    break_progress: tuple[float, float, int, int] | None = None  # duration, start, x, y
 
     def __init__(
         self,
@@ -128,26 +127,26 @@ class Player:
 
         # not in break progress or block is different => new process
         if self.break_progress is None or self.break_progress[2:4] != (x, y):
-            self.break_progress = (1.0, time.time(), x, y)
-            return False 
+            self.break_progress = (1.0, time(), x, y)
+            return False
 
         duration = self.break_progress[0]
         start = self.break_progress[1]
-        now = time.time()
+        now = time()
 
         if now - start < duration:
             return False
 
         self.break_progress = None
-        
-        block = self.world.destroy_block(
-            x, y
-        )
+
+        block = self.world.destroy_block(x, y)
         if not block:
             return False
         item = block.get_item()
         if item:
             self.inventory.add_stack((item, 1))
+
+        self.break_start = None
 
         return True
 
