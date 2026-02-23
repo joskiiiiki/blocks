@@ -27,6 +27,8 @@ class Textures:
         "water_top": None,
         "log": None,
         "leaves": None,
+        "planks": None,
+        "torch": None,
         "unknown": UNKNOWN_BLOCK,
     }
 

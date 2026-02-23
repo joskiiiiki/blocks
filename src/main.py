@@ -30,7 +30,11 @@ class Game:
 
     def __init__(self, world_path: Path):
         pygame.init()
-        self.world = World(world_path, self.on_block_changed)
+        world = World(world_path, self.on_block_changed)
+        if not world:
+            return
+        self.world = world
+
         self._screen = pygame.display.set_mode(
             self.resolution, flags=pygame.RESIZABLE | pygame.DOUBLEBUF | pygame.OPENGL
         )
@@ -61,7 +65,7 @@ class Game:
         self.running = True
         delta_t = 1 / self.framerate
         while self.running:
-            self._screen.fill(assets.COLOR_SKY)
+            # self._screen.fill(assets.COLOR_SKY)
             self.overlay.clear()
 
             for event in pygame.event.get():
@@ -128,6 +132,8 @@ class Game:
 if __name__ == "__main__":
     path = world_path("world-1")
     game = Game(path)
+
+    
 
     game.main()
 

@@ -1,4 +1,7 @@
 from __future__ import annotations
+import signal
+import sys
+import atexit
 
 import json
 import os
@@ -70,6 +73,7 @@ class WorldData:
 class World:
     chunk_manager: ChunkManager
     world_path: pathlib.Path
+    lock_path: pathlib.Path
     player_pos: tuple[float, float] = (0, 0)
     world_data: WorldData
     on_block_changed: Callable[[int, int], None] | None
@@ -80,6 +84,8 @@ class World:
         on_block_changed: Callable[[int, int], None] | None = None,
     ):
         self.world_path = path
+        self.lock_path = self.world_path / ".lock"
+
 
         exists = path.exists() and path.is_dir()
 
@@ -91,7 +97,10 @@ class World:
             world_data_path = path / "world.json"
             world_data_path.touch(exist_ok=True)
             self.world_data.save(world_data_path)
+        elif not self.acquire():
+            raise Exception(f"Could not aquire lock on {self.world_path}")
         else:
+
             world_data_path = path / "world.json"
             world_data_path.touch(exist_ok=True)
             world_data = WorldData.from_file(world_data_path)
@@ -115,6 +124,40 @@ class World:
         )
 
         self.chunk_manager.start()
+
+    def release(self):
+        if not self.lock_path.exists():
+            return
+
+        try:
+            self.lock_path.unlink(missing_ok=False)
+            print(f"Released lock on {self.world_path}")
+        except Exception as e:
+            print(f"Failed to release lock on {self.world_path}: {e}")
+            
+            
+
+    def acquire(self) -> bool:
+        if self.lock_path.exists():
+            print(f"World {self.lock_path} is locked by another process")
+            return False
+
+        try:
+            self.lock_path.touch(exist_ok = False)
+            print(f"Lock aquired for {self.world_path}")
+
+            atexit.register(self.release)
+            signal.signal(signal.SIGINT, self._signal_handler)
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            return True
+        except Exception as e:
+            print(f"Failed to aquire lock on {self.world_path}: {e}")
+            return False
+
+    def _signal_handler(self, signum, frame):
+        print(f"\nReceived signal {signum}, cleaning up...")
+        self.release()
+        sys.exit(0)
 
     def new_world_data(self) -> WorldData:
         return WorldData(
@@ -144,9 +187,9 @@ class World:
             self.on_block_changed(int(x), int(y))
         return self.chunk_manager.set_block(x, y, block.value)
 
-    def destroy_block(self, x: float, y: float) -> Block | None:
+    def destroy_block(self, x: int, y: int) -> Block | None:
         if self.on_block_changed is not None:
-            self.on_block_changed(int(x), int(y))
+            self.on_block_changed(x, y)
         return Block(self.chunk_manager.destroy_block(x, y))
 
     def is_solid(self, x: float, y: float) -> bool:
@@ -157,3 +200,4 @@ class World:
 
     def world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
         return self.chunk_manager._world_to_chunk(x, y)
+

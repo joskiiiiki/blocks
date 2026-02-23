@@ -14,5 +14,5 @@ void main() {
     // Apply lighting
     vec3 lit_color = tex_color.rgb * v_light;
 
-    fragColor = vec4(lit_color, 1.0);
+    fragColor = vec4(lit_color, tex_color.a);
 }

@@ -21,7 +21,8 @@ class Block(Enum):
     WATER = 4
     LOG = 5
     LEAVES = 6
-    TORCH = 7
+    PLANKS = 7
+    TORCH = 8
     UNKNOWN = 255
 
     def is_collidable(self) -> bool:
@@ -77,8 +78,9 @@ BLOCK_TO_TEXTURE: dict[int, str | None] = {
     (Block.WATER.with_data((0, 1))): "water_top",
     Block.LOG.value: "log",
     Block.LEAVES.value: "leaves",
-    Block.UNKNOWN.value: "unknown",
     Block.TORCH.value: "torch",
+    Block.PLANKS.value: "planks",
+    Block.UNKNOWN.value: "unknown",
 }
 
 

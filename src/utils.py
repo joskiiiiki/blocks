@@ -1,3 +1,4 @@
+import math
 def world_to_camera(cam_x: float, cam_y: float, world_x: float, world_y: float) -> tuple[float, float]:
     """Convert world space coordinates to camera space coordinates"""
 
@@ -25,3 +26,6 @@ def screen_to_world(cam_x: float, cam_y: float, screen_x: float, screen_y: float
     from_camera_y = (screen_height // 2 - screen_y) / tile_size
 
     return camera_to_world(cam_x, cam_y, from_camera_x, from_camera_y)
+
+def to_block(x: float, y: float) -> tuple[int, int]:
+    return int(math.floor(x)), int(math.floor(y))

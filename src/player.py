@@ -1,3 +1,4 @@
+import time
 import math
 from collections.abc import Callable
 from typing import Optional
@@ -8,7 +9,7 @@ from src.assets import TILE_SIZE
 from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block, Item
 from src.collision import BoundingBox, sweep_collision
 from src.inventory import Hotbar, Inventory
-from src.utils import screen_to_world, world_to_screen
+from src.utils import screen_to_world, world_to_screen, to_block
 from src.world import (
     World,
 )
@@ -41,6 +42,7 @@ class Player:
     inventory: Inventory = Inventory()
     hotbar: Hotbar
     in_water: bool = False
+    break_progress: tuple[float, float, int, int] | None = None # duration, start, x, y  
 
     def __init__(
         self,
@@ -62,7 +64,7 @@ class Player:
         if event.type == pygame.MOUSEWHEEL:
             self.hotbar.handle_scroll(event.y)
 
-    def handle_input(self, resolution: tuple[int, int]) -> None:
+    def handle_input(self, resolution: tuple[int, int], delta_t: float) -> None:
         keys = pygame.key.get_pressed()
 
         self.vel_x = 0
@@ -114,23 +116,40 @@ class Player:
             self.handle_right_click()
 
         elif mouse_left:
-            self.handle_left_click()
+            self.handle_left_click(delta_t)
 
     def apply_gravity(self, delta_t: float, multiplier: float = 1.0) -> None:
         # if self.on_ground:
         #     return
         self.vel_y += self.gravity * delta_t * multiplier
 
-    def handle_left_click(self) -> None:
+    def handle_left_click(self, delta_t: float) -> bool:
+        x, y = to_block(*self.cursor_position_world)
+
+        # not in break progress or block is different => new process
+        if self.break_progress is None or self.break_progress[2:4] != (x, y):
+            self.break_progress = (1.0, time.time(), x, y)
+            return False 
+
+        duration = self.break_progress[0]
+        start = self.break_progress[1]
+        now = time.time()
+
+        if now - start < duration:
+            return False
+
+        self.break_progress = None
+        
         block = self.world.destroy_block(
-            self.cursor_position_world[0],
-            self.cursor_position_world[1],
+            x, y
         )
         if not block:
-            return
+            return False
         item = block.get_item()
         if item:
             self.inventory.add_stack((item, 1))
+
+        return True
 
     def handle_right_click(self) -> None:
         item = self.inventory.get_slot(self.hotbar.selected_slot)
@@ -150,7 +169,7 @@ class Player:
     def update(self, delta_t: float, resolution: tuple[int, int]) -> None:
         touching_blocks = self.get_touching_blocks()
         self.in_water = Block.WATER.value in touching_blocks
-        self.handle_input(resolution)
+        self.handle_input(resolution, delta_t)
 
         if self.sliding:
             self.slide_timer -= 1

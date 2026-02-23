@@ -45,7 +45,10 @@ class PygameOverlay:
         resolution: tuple[int, int],
     ):
         self.resolution = resolution
-        self.surface = pygame.Surface(resolution, pygame.SRCALPHA)
+        self.surface = pygame.Surface(
+            resolution,
+            flags=pygame.SRCALPHA,
+        )
         self.ctx = ctx
         self.texture = self.ctx.texture(self.resolution, 4)
         self.texture.filter = moderngl.NEAREST, moderngl.NEAREST
@@ -88,6 +91,7 @@ class PygameOverlay:
         # enable alpha blending
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        self.texture.swizzle = "BGRA"
 
         # binds texture to texture unit 0
         self.texture.use()

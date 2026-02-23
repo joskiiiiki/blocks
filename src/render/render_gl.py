@@ -283,9 +283,11 @@ class ChunkRendererGL:
         self.atlas.texture.use(0)
 
         # Clear and render
+        self.ctx.enable(moderngl.BLEND)
         self.ctx.clear(*assets.COLOR_SKY.normalized)
 
         self.vao.render(moderngl.TRIANGLES, instances=num_instances)
+        self.ctx.disable(moderngl.BLEND)
 
     def _should_update_lighting(self, current_chunks: set[int]) -> bool:
         return self.lighting_dirty or self.last_lit_chunks != current_chunks
