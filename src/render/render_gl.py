@@ -10,8 +10,7 @@ Performance improvements:
 """
 
 import math
-import sys
-from typing import Optional, TypeAlias
+from typing import TypeAlias
 
 import moderngl
 import numpy as np
@@ -110,7 +109,36 @@ class ChunkRendererGL:
         )
 
         self.lighting_manager = lighting_manager
+        self._init_air()
 
+    
+    def _init_air(self):
+        """Initialize light debug rendering"""
+        print("Initializing light debug renderer...")
+        
+        # Compile debug shaders
+        self.air_program = self.ctx.program(
+            vertex_shader=shaders.AIR_VERTEX_SHADER,
+            fragment_shader=shaders.AIR_FRAGMENT_SHADER
+        )
+        
+        # Create full-screen quad
+        quad_vertices = np.array([
+            # pos_x, pos_y, u, v
+            [0.0, 0.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0, 0.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+        ], dtype='f4')
+        
+        quad_vbo = self.ctx.buffer(quad_vertices.tobytes())
+        
+        self.air_vao = self.ctx.vertex_array(
+            self.air_program,
+            [(quad_vbo, '2f 2f', 'in_position', 'in_uv')],
+        )
     def update_projection(self, screen_width: int, screen_height: int):
         if self.last_screen_size == (screen_width, screen_height):
             return
@@ -256,6 +284,10 @@ class ChunkRendererGL:
             print("No instances to render")
             return
 
+        self.ctx.viewport = (0, 0, screen_width, screen_height)
+        self.ctx.clear(*assets.COLOR_SKY.normalized)
+        
+        # self._render_air(screen_width, screen_height, camera_pos, min_chunk_x, max_chunk_x)
         self._render_gpu(instances, screen_width, screen_height, camera_pos)
 
     def _render_gpu(
@@ -267,7 +299,6 @@ class ChunkRendererGL:
     ):
         num_instances = len(instances)
 
-        self.ctx.viewport = (0, 0, screen_width, screen_height)
 
         self.instance_vbo.write(instances.tobytes())
 
@@ -284,10 +315,79 @@ class ChunkRendererGL:
 
         # Clear and render
         self.ctx.enable(moderngl.BLEND)
-        self.ctx.clear(*assets.COLOR_SKY.normalized)
 
         self.vao.render(moderngl.TRIANGLES, instances=num_instances)
         self.ctx.disable(moderngl.BLEND)
+
+    def _render_air(
+        self,
+        screen_width: int,
+        screen_height: int,
+        camera_pos: tuple[float, float],
+        min_chunk_x: int,
+        max_chunk_x: int,
+    ):
+        """Render light map as a debug overlay"""
+        # Get combined lightmap for visible chunks
+        combined_lightmaps = []
+        for chunk_x in range(min_chunk_x, max_chunk_x + 1):
+            lightmap = self.lighting_manager.get_lightmap(chunk_x)
+            if lightmap is not None:
+                combined_lightmaps.append(lightmap)
+        
+        if not combined_lightmaps:
+            return
+        
+        # Combine lightmaps horizontally
+        combined: npt.NDArray = np.concatenate(combined_lightmaps, axis=0)
+        print(combined)
+        width, height = combined.shape[0], combined.shape[1]
+        
+        # Add alpha channel (set to 1.0)
+        light_rgba = np.ones((width, height, 4), dtype=np.float32)
+        # light_rgba[:, :, :3] = combined
+        
+        # # Flip for OpenGL
+        # light_rgba = np.flip(light_rgba, axis=1).copy()
+        # light_rgba = 
+        light_rgba[:, 0:width // 4 * 4, :] = 0
+        
+        # Create temporary texture
+        light_texture = self.ctx.texture(
+            (width, height),
+            4,
+            data=light_rgba.tobytes(),
+            dtype='f4'
+        )
+        light_texture.repeat_x = False
+        light_texture.repeat_y = False
+        light_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        
+        # Bind texture
+        light_texture.use(0)
+        
+        # Set uniforms
+        cam_x, cam_y = camera_pos
+        world_offset_x = min_chunk_x * self.chunk_manager.width
+        
+        self.air_program['light_texture'] = 0
+        # self.air_program['screen_size'] = (float(screen_width), float(screen_height))
+        # self.air_program['camera_pos'] = (cam_x, cam_y)
+        # self.air_program['tile_size'] = float(self.tile_size)
+        # self.air_program['world_offset'] = (float(world_offset_x), 0.0)
+        self.air_program['light_map_size'] = (float(width), float(height))
+        
+        # Enable blending for overlay
+        self.ctx.enable(moderngl.BLEND)
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        
+        # Render full-screen quad
+        self.air_vao.render(moderngl.TRIANGLES)
+
+        self.ctx.disable(moderngl.BLEND)
+        
+        # Cleanup
+        light_texture.release()
 
     def _should_update_lighting(self, current_chunks: set[int]) -> bool:
         return self.lighting_dirty or self.last_lit_chunks != current_chunks
