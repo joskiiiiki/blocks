@@ -18,6 +18,7 @@ import numpy.typing as npt
 import pygame
 
 from src import assets, shaders
+from src.assets import TEXTURES
 from src.blocks import BLOCK_ID_MASK, Block, BlockData
 from src.render.lighting import LightingManagerGL
 from src.render.texture_atlas import TextureAtlas
@@ -111,34 +112,37 @@ class ChunkRendererGL:
         self.lighting_manager = lighting_manager
         self._init_air()
 
-    
     def _init_air(self):
         """Initialize light debug rendering"""
         print("Initializing light debug renderer...")
-        
+
         # Compile debug shaders
         self.air_program = self.ctx.program(
             vertex_shader=shaders.AIR_VERTEX_SHADER,
-            fragment_shader=shaders.AIR_FRAGMENT_SHADER
+            fragment_shader=shaders.AIR_FRAGMENT_SHADER,
         )
-        
+
         # Create full-screen quad
-        quad_vertices = np.array([
-            # pos_x, pos_y, u, v
-            [0.0, 0.0, 0.0, 0.0],
-            [1.0, 0.0, 1.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [1.0, 1.0, 1.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],
-        ], dtype='f4')
-        
+        quad_vertices = np.array(
+            [
+                # pos_x, pos_y, u, v
+                [0.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [1.0, 1.0, 1.0, 1.0],
+                [0.0, 1.0, 0.0, 1.0],
+            ],
+            dtype="f4",
+        )
+
         quad_vbo = self.ctx.buffer(quad_vertices.tobytes())
-        
+
         self.air_vao = self.ctx.vertex_array(
             self.air_program,
-            [(quad_vbo, '2f 2f', 'in_position', 'in_uv')],
+            [(quad_vbo, "2f 2f", "in_position", "in_uv")],
         )
+
     def update_projection(self, screen_width: int, screen_height: int):
         if self.last_screen_size == (screen_width, screen_height):
             return
@@ -286,8 +290,10 @@ class ChunkRendererGL:
 
         self.ctx.viewport = (0, 0, screen_width, screen_height)
         self.ctx.clear(*assets.COLOR_SKY.normalized)
-        
-        # self._render_air(screen_width, screen_height, camera_pos, min_chunk_x, max_chunk_x)
+
+        self._render_air(
+            screen_width, screen_height, camera_pos, min_chunk_x, max_chunk_x
+        )
         self._render_gpu(instances, screen_width, screen_height, camera_pos)
 
     def _render_gpu(
@@ -298,7 +304,6 @@ class ChunkRendererGL:
         camera_pos: tuple[float, float],
     ):
         num_instances = len(instances)
-
 
         self.instance_vbo.write(instances.tobytes())
 
@@ -320,74 +325,92 @@ class ChunkRendererGL:
         self.ctx.disable(moderngl.BLEND)
 
     def _render_air(
-        self,
-        screen_width: int,
-        screen_height: int,
-        camera_pos: tuple[float, float],
-        min_chunk_x: int,
-        max_chunk_x: int,
+        self, screen_width, screen_height, camera_pos, min_chunk_x, max_chunk_x
     ):
-        """Render light map as a debug overlay"""
-        # Get combined lightmap for visible chunks
-        combined_lightmaps = []
+        combined_lightmaps: list[npt.NDArray[np.float32]] = []
+        combined_skymaps: list[npt.NDArray[np.bool]] = []
         for chunk_x in range(min_chunk_x, max_chunk_x + 1):
             lightmap = self.lighting_manager.get_lightmap(chunk_x)
-            if lightmap is not None:
+            skymap = self.lighting_manager.get_skymap(chunk_x)
+            if lightmap is not None and skymap is not None:
                 combined_lightmaps.append(lightmap)
-        
-        if not combined_lightmaps:
+                combined_skymaps.append(skymap)
+
+        if len(combined_lightmaps) == 0 or len(combined_skymaps) == 0:
             return
-        
-        # Combine lightmaps horizontally
-        combined: npt.NDArray = np.concatenate(combined_lightmaps, axis=0)
-        print(combined)
-        width, height = combined.shape[0], combined.shape[1]
-        
-        # Add alpha channel (set to 1.0)
-        light_rgba = np.ones((width, height, 4), dtype=np.float32)
-        # light_rgba[:, :, :3] = combined
-        
-        # # Flip for OpenGL
-        # light_rgba = np.flip(light_rgba, axis=1).copy()
-        # light_rgba = 
-        light_rgba[:, 0:width // 4 * 4, :] = 0
-        
-        # Create temporary texture
-        light_texture = self.ctx.texture(
-            (width, height),
+
+        lm_combined: npt.NDArray[np.float32] = np.concatenate(
+            combined_lightmaps, axis=0
+        )  # [width, height, 3]
+        sm_combined: npt.NDArray[np.bool] = np.concatenate(
+            combined_skymaps, axis=0
+        )  # [width, height, 3]
+
+        lm_width, lm_height = lm_combined.shape[0], lm_combined.shape[1]
+
+        # Add alpha channel
+        light_rgba = np.ones((lm_width, lm_height, 4), dtype=np.float32)
+        light_rgba[:, :, :3] = lm_combined
+
+        # Transpose to (height, width, 4) so tobytes() gives row-major Y-first layout for OpenGL
+        light_rgba = np.transpose(light_rgba, (1, 0, 2))  # now (world_y, world_x, 4)
+        light_rgba = np.flip(light_rgba, axis=0).copy()  # flip Y axis (axis=0 now = Y)
+        light_map = self.ctx.texture(
+            (lm_width, lm_height),  # still (world_x, world_y) — OpenGL width x height
             4,
             data=light_rgba.tobytes(),
-            dtype='f4'
+            dtype="f4",
         )
-        light_texture.repeat_x = False
-        light_texture.repeat_y = False
-        light_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
-        
-        # Bind texture
-        light_texture.use(0)
-        
-        # Set uniforms
+        light_map.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        light_map.use(1)
+
+        sm_width, sm_height = sm_combined.shape[0], sm_combined.shape[1]
+
+        # Add alpha channel
+
+        # Transpose to (height, width, 4) so tobytes() gives row-major Y-first layout for OpenGL
+        sm_rgba = np.transpose(sm_combined.astype(np.uint8), (1, 0))
+        sm_rgba = np.flip(sm_rgba, axis=0).copy()
+        sky_map = self.ctx.texture(
+            (sm_width, sm_height),  # still (world_x, world_y) — OpenGL width x height
+            1,
+            data=sm_rgba.tobytes(),
+            dtype="u1",
+        )
+        sky_map.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        sky_map.use(2)
+
+        background = TEXTURES.get_texture("stone_background")
+        background_texture = self.ctx.texture(
+            (32, 32),
+            4,
+            data=pygame.image.tobytes(background, "RGBA", False),
+            dtype="f1",
+        )
+        background_texture.repeat_x = True
+        background_texture.repeat_y = True
+        background_texture.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        background_texture.use(0)
+
         cam_x, cam_y = camera_pos
-        world_offset_x = min_chunk_x * self.chunk_manager.width
-        
-        self.air_program['light_texture'] = 0
-        # self.air_program['screen_size'] = (float(screen_width), float(screen_height))
-        # self.air_program['camera_pos'] = (cam_x, cam_y)
-        # self.air_program['tile_size'] = float(self.tile_size)
-        # self.air_program['world_offset'] = (float(world_offset_x), 0.0)
-        self.air_program['light_map_size'] = (float(width), float(height))
-        
-        # Enable blending for overlay
+        world_offset_x = float(min_chunk_x * self.chunk_manager.width)
+
+        self.air_program["background_tile"] = 0
+        self.air_program["light_map"] = 1
+        self.air_program["sky_map"] = 2
+        self.air_program["screen_size"] = (float(screen_width), float(screen_height))
+        self.air_program["camera_pos"] = (cam_x, cam_y)
+        self.air_program["tile_size"] = float(self.tile_size)
+        self.air_program["world_offset_x"] = world_offset_x
+        self.air_program["light_map_size"] = (float(lm_width), float(lm_height))
+
         self.ctx.enable(moderngl.BLEND)
         self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-        
-        # Render full-screen quad
         self.air_vao.render(moderngl.TRIANGLES)
-
         self.ctx.disable(moderngl.BLEND)
-        
-        # Cleanup
-        light_texture.release()
+
+        background_texture.release()
+        light_map.release()
 
     def _should_update_lighting(self, current_chunks: set[int]) -> bool:
         return self.lighting_dirty or self.last_lit_chunks != current_chunks

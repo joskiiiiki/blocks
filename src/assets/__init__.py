@@ -29,6 +29,7 @@ class Textures:
         "leaves": None,
         "planks": None,
         "torch": None,
+        "stone_background": None,
         "unknown": UNKNOWN_BLOCK,
     }
 

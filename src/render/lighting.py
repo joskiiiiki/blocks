@@ -8,9 +8,10 @@ Uses ping-pong buffers to properly propagate light across iterations.
 FIXED: Proper coordinate system handling - transposes arrays to match OpenGL texture layout.
 """
 
+from time import time
+
 import moderngl
 import numpy as np
-from time import time
 import numpy.typing as npt
 
 from src.blocks import BLOCK_ID_MASK, Block
@@ -25,7 +26,6 @@ BLOCK_LIGHTS = {
 }
 
 
-
 class LightingManagerGL:
     """GPU-accelerated lighting manager using compute shaders"""
 
@@ -33,11 +33,13 @@ class LightingManagerGL:
     chunk_manager: ChunkManager
     compute_program: moderngl.ComputeShader
     lightmaps: dict[int, npt.NDArray[np.float32]]
+    skymaps: dict[int, npt.NDArray[np.bool_]]
 
     def __init__(self, chunk_manager: ChunkManager, ctx: moderngl.Context):
         self.ctx = ctx
         self.chunk_manager = chunk_manager
         self.lightmaps = {}
+        self.skymaps = {}
 
         # Compile compute shader
         print("Compiling lighting compute shader...")
@@ -46,7 +48,7 @@ class LightingManagerGL:
 
     def _build_light_sources(
         self, blocks: npt.NDArray[np.uint16]
-    ) -> npt.NDArray[np.float32]:
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.bool]]:
         width, height = blocks.shape
         lightmap = np.zeros((width, height, 4), dtype=np.float32)
 
@@ -57,7 +59,9 @@ class LightingManagerGL:
         is_air = block_ids == Block.AIR.value  # [width, height]
 
         # cumprod from the top: stays True (1) until a non-air block is hit
-        sunlit = np.cumprod(is_air[:, ::-1], axis=1)[:, ::-1].astype(bool)  # [width, height]
+        sunlit = np.cumprod(is_air[:, ::-1], axis=1)[:, ::-1].astype(
+            bool
+        )  # [width, height]
 
         lightmap[sunlit, 0] = SUN_LIGHT[0]
         lightmap[sunlit, 1] = SUN_LIGHT[1]
@@ -66,11 +70,17 @@ class LightingManagerGL:
         # --- Block lights (torches etc.) ---
         for block_val, (r, g, b) in BLOCK_LIGHTS.items():
             mask = block_ids == block_val
-            lightmap[:, :, 0] = np.where(mask, np.maximum(lightmap[:, :, 0], r), lightmap[:, :, 0])
-            lightmap[:, :, 1] = np.where(mask, np.maximum(lightmap[:, :, 1], g), lightmap[:, :, 1])
-            lightmap[:, :, 2] = np.where(mask, np.maximum(lightmap[:, :, 2], b), lightmap[:, :, 2])
+            lightmap[:, :, 0] = np.where(
+                mask, np.maximum(lightmap[:, :, 0], r), lightmap[:, :, 0]
+            )
+            lightmap[:, :, 1] = np.where(
+                mask, np.maximum(lightmap[:, :, 1], g), lightmap[:, :, 1]
+            )
+            lightmap[:, :, 2] = np.where(
+                mask, np.maximum(lightmap[:, :, 2], b), lightmap[:, :, 2]
+            )
 
-        return lightmap
+        return lightmap, sunlit
 
     def calculate_lighting_region(
         self, chunk_x_min: int, chunk_x_max: int, iterations: int = 16
@@ -106,14 +116,14 @@ class LightingManagerGL:
 
         # Build light sources BEFORE transposing
         t0 = time()
-        light_sources = self._build_light_sources(combined)
-        t1  = time()
+        light_sources, sunlit = self._build_light_sources(combined)
+        t1 = time()
         print(f"Buildings Lightsources: {t1 - t0}")
 
         # Create block ID map
         t0 = time()
         block_ids = (combined & BLOCK_ID_MASK).astype(np.uint8)
-        
+
         block_ids_transposed = block_ids.T  # Now [height, width]
         light_sources_transposed = np.transpose(
             light_sources, (1, 0, 2)
@@ -180,7 +190,6 @@ class LightingManagerGL:
 
         print(f"  Running {iterations} iterations [{groups_x}x{groups_y} work groups]")
 
-
         t0 = time()
         # PING-PONG propagation
         for i in range(iterations):
@@ -226,6 +235,7 @@ class LightingManagerGL:
             start_x = i * chunk_width
             end_x = start_x + chunk_width
             self.lightmaps[chunk_x] = light_map[start_x:end_x, :, :]
+            self.skymaps[chunk_x] = sunlit[start_x:end_x, :]  # [chunk_width, height]
 
         t1 = time()
 
@@ -240,14 +250,19 @@ class LightingManagerGL:
         tt1 = time()
 
         print(f"  ✓ GPU lighting complete {tt1 - tt0}")
-        
 
     def get_lightmap(self, chunk_x: int) -> npt.NDArray[np.float32] | None:
         """Get lightmap for a chunk (returns None if not calculated)"""
         return self.lightmaps.get(chunk_x)
+
+    def get_skymap(self, chunk_x: int) -> npt.NDArray[np.bool_] | None:
+        """Get skymap for a chunk — True where tiles are open to sky (returns None if not calculated)"""
+        return self.skymaps.get(chunk_x)
 
     def mark_chunks_dirty(self, chunk_x_list: list[int]):
         """Mark chunks as needing recalculation"""
         for chunk_x in chunk_x_list:
             if chunk_x in self.lightmaps:
                 del self.lightmaps[chunk_x]
+            if chunk_x in self.skymaps:
+                del self.skymaps[chunk_x]
