@@ -23,6 +23,7 @@ SUN_LIGHT = (1.0, 1.0, 1.0)
 TRANSPARENT_BLOCKS = {Block.AIR.value, Block.WATER.value}
 BLOCK_LIGHTS = {
     Block.TORCH.value: (1.0, 0.75, 0.5),
+    Block.COPPER_TORCH.value: (0.5, 1.0, 0.75),
 }
 
 

@@ -23,6 +23,7 @@ class Block(Enum):
     LEAVES = 6
     PLANKS = 7
     TORCH = 8
+    COPPER_TORCH = 9
     UNKNOWN = 255
 
     def is_collidable(self) -> bool:
@@ -79,12 +80,13 @@ BLOCK_TO_TEXTURE: dict[int, str | None] = {
     Block.LOG.value: "log",
     Block.LEAVES.value: "leaves",
     Block.TORCH.value: "torch",
+    Block.COPPER_TORCH.value: "copper_torch",
     Block.PLANKS.value: "planks",
     Block.UNKNOWN.value: "unknown",
 }
 
 
-NONCOLLIDABLE_BLOCKS = {Block.AIR.value, Block.WATER.value, Block.TORCH.value}
+NONCOLLIDABLE_BLOCKS = {Block.AIR.value, Block.WATER.value, Block.TORCH.value, Block.COPPER_TORCH.value}
 
 
 def get_block_id_checked(block_data: BlockData) -> Block:
@@ -129,7 +131,9 @@ class Item(Enum):
     WATER = 4
     LOG = 5
     LEAVES = 6
-    TORCH = 7
+    PLANKS = 7
+    TORCH = 8
+    COPPER_TORCH = 9
 
     UNKNOWN = 255
 
@@ -160,8 +164,10 @@ ITEM_TO_BLOCK: dict[int, int] = {
     Item.GRASS.value: Block.GRASS.value,
     Item.WATER.value: Block.WATER.value,
     Item.LOG.value: Block.LOG.value,
+    Item.PLANKS.value: Block.PLANKS.value,
     Item.LEAVES.value: Block.LEAVES.value,
     Item.TORCH.value: Block.TORCH.value,
+    Item.COPPER_TORCH.value: Block.COPPER_TORCH.value,
     Item.UNKNOWN.value: Block.UNKNOWN.value,
 }
 
@@ -175,6 +181,8 @@ ITEM_TEXTURES = {
     Item.LOG.value: "log",
     Item.LEAVES.value: "leaves",
     Item.TORCH.value: "torch",
+    Item.PLANKS.value: "plank",
+    Item.COPPER_TORCH.value: "copper_torch",
     Item.UNKNOWN.value: "unknown",
 }
 

@@ -58,6 +58,7 @@ class Player:
         self.hotbar = Hotbar()
         self.world = world
         self.inventory.add_stack((Item.TORCH, 100))
+        self.inventory.add_stack((Item.COPPER_TORCH, 100))
 
     def handle_mousewheel(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEWHEEL:
