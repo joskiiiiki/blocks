@@ -4,6 +4,7 @@ import moderngl
 import pygame
 
 from src import assets
+from src.entities import Enemy
 from src.player import Player
 from src.render import ChunkRendererGL, PygameOverlay
 from src.render.lighting import LightingManagerGL
@@ -64,6 +65,9 @@ class Game:
         self.world.update_chunk_cache()
         self.running = True
         delta_t = 1 / self.framerate
+
+        enemy = Enemy(0, 280, self.world)
+
         while self.running:
             # self._screen.fill(assets.COLOR_SKY)
             self.overlay.clear()
@@ -81,6 +85,7 @@ class Game:
                 self.running = False
 
             self.player.update(delta_t, self.resolution)
+            enemy.update_entity(delta_t)
 
             self.world.player_pos = self.player.xy
 
@@ -89,6 +94,8 @@ class Game:
             self.chunk_render.render(self.player.xy, self.resolution)
 
             self.player.draw(self.overlay.surface, self.resolution)
+
+            enemy.draw(self.overlay.surface, *self.player.xy, self.resolution)
 
             fps = self.clock.get_fps()
             fps_text = self.font.render(f"FPS: {fps:.1f}", True, (255, 255, 255))
@@ -132,8 +139,6 @@ class Game:
 if __name__ == "__main__":
     path = world_path("world-1")
     game = Game(path)
-
-    
 
     game.main()
 
