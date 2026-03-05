@@ -511,7 +511,7 @@ class ChunkManager:
     def _world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
         """Convert world coordinates to chunk coordinates"""
         chunk_x = math.floor(x) // self.width
-        local_x = x % self.width
+        local_x = x - chunk_x * self.width
 
         assert local_x < 32
         assert local_x >= 0

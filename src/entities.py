@@ -3,7 +3,7 @@ import math
 import pygame
 
 from src.assets import TILE_SIZE
-from src.entity import Mob
+from src.mob import Mob
 from src.utils import world_to_screen
 from src.world import World
 

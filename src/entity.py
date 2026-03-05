@@ -48,6 +48,8 @@ class Entity:
     stagger_timer: float = 0.0
     attack_frameindex: int = 0
 
+    jump_power: float = 12.0
+
     def __init__(
         self,
         maxhealth: int,
@@ -301,6 +303,19 @@ class Entity:
             if self.health > self.maxhealth:
                 self.health = float(self.maxhealth)
 
+    def jump(self):
+        if self.on_ground:
+            self.velocity.y += self.jump_power
+            self.on_ground = False
+
+    def swim_up(self):
+        if self.in_water:
+            self.velocity.y += 1.0
+
+    def swim_down(self):
+        if self.in_water:
+            self.velocity.y -= 1.0
+
 
 # --- Player ---
 
@@ -316,7 +331,6 @@ class Player(Entity):
     # --- physics ---
     bbox_size: pygame.Vector2 = pygame.Vector2(0.8, 1.8)
     gravity: float = -9.81
-    jump_power: float = 12.0
     sprint_speed: float = 8.0
 
     passivregen: float = 5.0
@@ -338,21 +352,6 @@ class Player(Entity):
         self.armor_value = Player.armor_value
         self.jump_power = Player.jump_power
         self.sprint_speed = Player.sprint_speed
-
-    # --- movement ---
-
-    def jump(self) -> None:
-        if self.on_ground:
-            self.vel_y += self.jump_power
-            self.on_ground = False
-
-    def swim_up(self) -> None:
-        if self.in_water:
-            self.vel_y += 1.0
-
-    def swim_down(self) -> None:
-        if self.in_water:
-            self.vel_y -= 1.0
 
     # --- combat ---
 
@@ -377,76 +376,3 @@ class Player(Entity):
 
 
 # --- Mob ---
-
-
-class Mob(Entity):
-    # --- stats ---
-    maxhealth: int = 100
-    maxstagger: int = 60
-    default_walk_speed: float = 90.0
-    Defaultdmg: int = 8
-    default_attack_speed: float = 1.5
-
-    # --- physics ---
-    bbox_size: pygame.Vector2 = pygame.Vector2(0.8, 1.8)
-
-    # --- aggro ranges ---
-    detect_range_x: float = 200.0
-    detect_range_y: float = 120.0
-    chase_range_x: float = 350.0
-    chase_range_y: float = 200.0
-
-    has_aggro: bool = False
-
-    def __init__(self, x: float, y: float, world: World) -> None:
-        super().__init__(
-            maxhealth=self.maxhealth,
-            maxstagger=self.maxstagger,
-            walkspeed=self.default_walk_speed,
-            dmg=self.Defaultdmg,
-            attackspeed=self.default_attack_speed,
-            x=x,
-            y=y,
-            world=world,
-            badEntity=True,
-        )
-        self.detect_range_x = Mob.detect_range_x
-        self.detect_range_y = Mob.detect_range_y
-        self.chase_range_x = Mob.chase_range_x
-        self.chase_range_y = Mob.chase_range_y
-        self.has_aggro = False
-
-    # --- aggro ---
-
-    def focus_player(self, player: Player) -> None:
-        dx = abs(player.x - self.x)
-        dy = abs(player.y - self.y)
-
-        if not self.has_aggro:
-            if dx < self.detect_range_x and dy < self.detect_range_y:
-                self.has_aggro = True
-        else:
-            if dx > self.chase_range_x or dy > self.chase_range_y:
-                self.has_aggro = False
-
-    # --- movement ---
-
-    def move_towards_player(self, player: Player, dt: float) -> None:
-        if not self.has_aggro or self.is_staggered:
-            return
-
-        # set horizontal velocity toward player, then let sweep collision resolve it
-        if player.x > self.x:
-            self.vel_x = self.walkspeed
-        elif player.x < self.x:
-            self.vel_x = -self.walkspeed
-        else:
-            self.vel_x = 0.0
-
-        self.apply_gravity(dt)
-        self.apply_velocity(dt)
-
-    def update_focus(self, player: Player, dt: float) -> None:
-        self.focus_player(player)
-        self.move_towards_player(player, dt)
-        super().update_entity(dt)

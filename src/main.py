@@ -85,6 +85,8 @@ class Game:
                 self.running = False
 
             self.player.update(delta_t, self.resolution)
+
+            enemy.update_focus(self.player, delta_t)
             enemy.update_entity(delta_t)
 
             self.world.player_pos = self.player.xy
