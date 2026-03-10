@@ -1,40 +1,79 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Callable
+
 import pygame
 
 from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block
 from src.collision import BoundingBox, sweep_collision
-from src.world import World
+
+
+@dataclass
+class EntityStats:
+    maxhealth: int
+    maxstagger: int
+    walk_speed: float
+    dmg: int
+    attack_speed: float
+    bbox_size: tuple[float, float]
+    jump_power: float = 6.0
+    gravity: float = -9.81
+    armor_value: float = 0.0
+    passivregen: float = 0.0
+    sprint_speed: float = 0.0  # 0 = no sprinting
+
+
+PLAYER_STATS = EntityStats(
+    maxhealth=200,
+    maxstagger=100,
+    walk_speed=5.0,
+    dmg=10,
+    attack_speed=1.0,
+    bbox_size=(0.8, 1.8),
+    jump_power=6.0,
+    armor_value=0.0,
+    passivregen=5.0,
+    sprint_speed=8.0,
+)
+
+MOB_STATS = EntityStats(
+    maxhealth=100,
+    maxstagger=60,
+    walk_speed=2.5,
+    dmg=8,
+    attack_speed=1.5,
+    bbox_size=(0.8, 1.8),
+    jump_power=6.0,
+)
+
+
+# ---------------------------------------------------------------------------
+# Physics result — returned by the game loop, consumed by entity
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PhysicsResult:
+    position: pygame.Vector2
+    on_ground: bool
+    hit_ceiling: bool
+    x_collision: bool
+    y_collision: bool
 
 
 class Entity:
-    # --- stats ---
-    maxhealth: int = 0
-    maxstagger: int = 0
-    default_walk_speed: float = 0.0
-    default_dmg: int = 0
-    default_attack_speed: float = 0.0
-    badEntity: bool = False
-    armor_value: float = 0.0
-
-    # --- bounding box size (override per subclass) ---
-    bbox_size: pygame.Vector2 = pygame.Vector2(1.0, 1.0)
-
-    # --- runtime stat state ---
-    health: float
-    stagger: float
-    walkspeed: float
-    attackspeed: float
-
-    # --- physics ---
-    gravity: float = -9.81
+    auto_jump: bool = True
+    # physics
     bounding_box: BoundingBox
     velocity: pygame.Vector2
     on_ground: bool = False
     hit_ceiling: bool = False
     in_water: bool = False
+    x_collision: bool = False
+    y_collision: bool = False
 
-    # --- combat state ---
+    # combat state
     is_hit: bool = False
     is_parrying: bool = False
     is_blocking: bool = False
@@ -42,55 +81,44 @@ class Entity:
     is_staggered: bool = False
     is_dead: bool = False
 
-    # --- timers ---
+    # timers
     attack_cooldown: float = 0.0
     hit_timer: float = 0.0
     stagger_timer: float = 0.0
     attack_frameindex: int = 0
 
-    jump_power: float = 12.0
+    def __init__(self, stats: EntityStats, x: float, y: float) -> None:
+        self.stats = stats
 
-    def __init__(
-        self,
-        maxhealth: int,
-        maxstagger: int,
-        walkspeed: float,
-        dmg: int,
-        attackspeed: float,
-        x: float,
-        y: float,
-        world: World,
-        badEntity: bool = False,
-    ) -> None:
-        self.maxhealth = maxhealth
-        self.health = float(maxhealth)
+        self.maxhealth = stats.maxhealth
+        self.health = float(stats.maxhealth)
 
-        self.maxstagger = maxstagger
-        self.stagger = float(maxstagger)
+        self.maxstagger = stats.maxstagger
+        self.stagger = float(stats.maxstagger)
 
-        self.default_walk_speed = walkspeed
-        self.walkspeed = walkspeed
+        self.walk_speed = stats.walk_speed
+        self.walkspeed = stats.walk_speed
+        self.dmg = stats.dmg
+        self.attackspeed = stats.attack_speed
+        self.default_attack_speed = stats.attack_speed
+        self.armor_value = stats.armor_value
+        self.passivregen = stats.passivregen
+        self.jump_power = stats.jump_power
+        self.gravity = stats.gravity
+        self.sprint_speed = stats.sprint_speed
 
-        self.Defaultdmg = dmg
-
-        self.default_attack_speed = attackspeed
-        self.attackspeed = attackspeed
-
-        self.badEntity = badEntity
-        self.armor_value = 0.0
-        self.world = world
-
-        # physics — bounding box owns position
         self.bounding_box = BoundingBox(
             position=pygame.Vector2(x, y),
-            size=pygame.Vector2(self.bbox_size),  # copy so subclasses don't share
+            size=pygame.Vector2(*stats.bbox_size),
         )
         self.velocity = pygame.Vector2(0, 0)
+
         self.on_ground = False
         self.hit_ceiling = False
         self.in_water = False
+        self.x_collision = False
+        self.y_collision = False
 
-        # combat state
         self.is_hit = False
         self.is_parrying = False
         self.is_blocking = False
@@ -98,13 +126,12 @@ class Entity:
         self.is_staggered = False
         self.is_dead = False
 
-        # timers
         self.attack_cooldown = 0.0
         self.hit_timer = 0.0
         self.stagger_timer = 0.0
         self.attack_frameindex = 0
 
-    # --- position properties (delegate to bounding_box) ---
+    # --- position ---
 
     @property
     def position(self) -> pygame.Vector2:
@@ -138,7 +165,7 @@ class Entity:
     def xy(self, value: tuple[float, float]) -> None:
         self.x, self.y = value
 
-    # --- velocity properties ---
+    # --- velocity ---
 
     @property
     def vel_x(self) -> float:
@@ -164,27 +191,47 @@ class Entity:
     def vel_xy(self, value: tuple[float, float]) -> None:
         self.velocity.x, self.velocity.y = value
 
-    # --- physics ---
+    # --- physics (pure, no world) ---
 
     def apply_gravity(self, dt: float, multiplier: float = 1.0) -> None:
         self.vel_y += self.gravity * dt * multiplier
 
-    def apply_velocity(self, dt: float) -> None:
-        """Moves entity via sweep collision against the world."""
-        self.position, _, self.on_ground, self.hit_ceiling = sweep_collision(
-            bounding_box=self.bounding_box,
-            velocity=self.velocity * dt,
-            is_solid=self.world.is_solid,
-        )
+    def apply_physics_result(self, result: PhysicsResult) -> None:
+        """Consume a PhysicsResult produced by the game loop's sweep_collision call."""
+        self.position = result.position
+        self.on_ground = result.on_ground
+        self.hit_ceiling = result.hit_ceiling
+        self.x_collision = result.x_collision
+        self.y_collision = result.y_collision
 
         if self.on_ground and self.vel_y < 0:
             self.vel_y = 0.0
         elif self.hit_ceiling and self.vel_y > 0:
             self.vel_y = 0.0
 
-    # --- update loop ---
+    # --- movement ---
 
-    def update_entity(self, dt: float) -> None:
+    def jump(self) -> None:
+        if self.on_ground:
+            self.vel_y += self.jump_power
+            self.on_ground = False
+
+    def swim_up(self) -> None:
+        if self.in_water:
+            self.vel_y += 1.0
+
+    def swim_down(self) -> None:
+        if self.in_water:
+            self.vel_y -= 1.0
+
+    # --- update (pure combat/timer logic only) ---
+
+    def update(self, dt: float, in_water: bool) -> None:
+        """
+        Update timers, stagger, gravity, water drag.
+        Physics (sweep collision) is handled externally — call apply_physics_result()
+        with the result afterward.
+        """
         if self.is_dead:
             return
 
@@ -199,55 +246,22 @@ class Entity:
         self._update_stagger(dt)
         self._regen_stagger(dt)
 
-        touching_blocks = self.get_touching_blocks()
-        self.in_water = Block.WATER.value in touching_blocks
-
+        self.in_water = in_water
         self.apply_gravity(dt)
 
         if self.in_water:
             self.velocity *= BLOCK_SPEED[Block.WATER.value]
 
-        # sweep collision (defined on Entity.apply_velocity)
-        self.apply_velocity(dt)
-
-    def get_touching_blocks(self, inset: float = 0.1) -> set[int]:
-        touching_blocks: set[int] = set()
-        check_points: list[tuple[float, float]] = [
-            (
-                self.bounding_box.left + inset,
-                self.bounding_box.bottom + inset,
-            ),  # bottom-left
-            (
-                self.bounding_box.right - inset,
-                self.bounding_box.bottom + inset,
-            ),  # bottom-right
-            (
-                self.bounding_box.left + inset,
-                self.bounding_box.top - inset,
-            ),  # top-left
-            (
-                self.bounding_box.right - inset,
-                self.bounding_box.top - inset,
-            ),  # top-right
-            (self.bounding_box.center.x, self.bounding_box.center.y),  # center
-        ]
-        for px, py in check_points:
-            block = self.world.chunk_manager.get_block(px, py)
-            if block is not None:
-                touching_blocks.add(BLOCK_ID_MASK & block)
-        return touching_blocks
-
     # --- damage ---
 
-    def TakeDamage(self, damage: float, stagger_damage: float) -> None:
+    def take_damage(self, damage: float, stagger_damage: float) -> None:
         if self.is_dead:
             return
 
         self.is_hit = True
         self.hit_timer = 150.0
 
-        mitigated_damage = damage * (1.0 - self.armor_value / 100.0)
-        self.health -= mitigated_damage
+        self.health -= damage * (1.0 - self.armor_value / 100.0)
         self.stagger -= stagger_damage
 
         if self.health <= 0:
@@ -264,19 +278,16 @@ class Entity:
 
         if self.is_staggered:
             self.stagger_timer -= dt
-
             if self.stagger_timer <= 0:
                 self.is_staggered = False
                 self.stagger = float(self.maxstagger)
-                self.walkspeed = self.default_walk_speed
+                self.walkspeed = self.walk_speed
                 self.attackspeed = self.default_attack_speed
 
     def _regen_stagger(self, dt: float) -> None:
         if not self.is_hit and not self.is_staggered:
             if self.stagger < self.maxstagger:
-                self.stagger += 0.02 * dt
-                if self.stagger > self.maxstagger:
-                    self.stagger = float(self.maxstagger)
+                self.stagger = min(self.stagger + 0.02 * dt, float(self.maxstagger))
 
     # --- combat ---
 
@@ -286,83 +297,81 @@ class Entity:
             self.attack_frameindex = 0
             self.attack_cooldown = self.attackspeed
 
-    # --- death ---
-
     def die(self) -> None:
         self.is_dead = True
         self.walkspeed = 0.0
         self.vel_x = 0.0
         self.is_attacking = False
 
-    # --- passive healing (opt-in via subclass) ---
-
     def regeneration(self, dt: float) -> None:
-        """Regenerates health passively. Requires subclass to define `passivregen`."""
         if not self.is_hit and self.health < self.maxhealth:
-            self.health += self.passivregen * dt / 1000.0  # type: ignore[attr-defined]
-            if self.health > self.maxhealth:
-                self.health = float(self.maxhealth)
+            self.health = min(
+                self.health + self.passivregen * dt / 1000.0,
+                float(self.maxhealth),
+            )
 
-    def jump(self):
-        if self.on_ground:
-            self.velocity.y += self.jump_power
-            self.on_ground = False
+    # --- serialization ---
 
-    def swim_up(self):
-        if self.in_water:
-            self.velocity.y += 1.0
+    def to_json(self) -> dict:
+        return {
+            "x": self.x,
+            "y": self.y,
+            "vel_x": self.vel_x,
+            "vel_y": self.vel_y,
+            "health": self.health,
+            "stagger": self.stagger,
+            "on_ground": self.on_ground,
+            "in_water": self.in_water,
+            "is_hit": self.is_hit,
+            "is_parrying": self.is_parrying,
+            "is_blocking": self.is_blocking,
+            "is_attacking": self.is_attacking,
+            "is_staggered": self.is_staggered,
+            "is_dead": self.is_dead,
+            "attack_cooldown": self.attack_cooldown,
+            "hit_timer": self.hit_timer,
+            "stagger_timer": self.stagger_timer,
+            "attack_frameindex": self.attack_frameindex,
+        }
 
-    def swim_down(self):
-        if self.in_water:
-            self.velocity.y -= 1.0
+    def from_json(self, data: dict) -> None:
+        self.x = data["x"]
+        self.y = data["y"]
+        self.vel_x = data["vel_x"]
+        self.vel_y = data["vel_y"]
+        self.health = data["health"]
+        self.stagger = data["stagger"]
+        self.on_ground = data["on_ground"]
+        self.in_water = data["in_water"]
+        self.is_hit = data["is_hit"]
+        self.is_parrying = data["is_parrying"]
+        self.is_blocking = data["is_blocking"]
+        self.is_attacking = data["is_attacking"]
+        self.is_staggered = data["is_staggered"]
+        self.is_dead = data["is_dead"]
+        self.attack_cooldown = data["attack_cooldown"]
+        self.hit_timer = data["hit_timer"]
+        self.stagger_timer = data["stagger_timer"]
+        self.attack_frameindex = data["attack_frameindex"]
 
 
-# --- Player ---
+# ---------------------------------------------------------------------------
+# Player
+# ---------------------------------------------------------------------------
 
 
 class Player(Entity):
-    # --- stats ---
-    maxhealth: int = 200
-    maxstagger: int = 100
-    default_walk_speed: float = 150.0
-    Defaultdmg: int = 10
-    default_attack_speed: float = 1.0
-
-    # --- physics ---
-    bbox_size: pygame.Vector2 = pygame.Vector2(0.8, 1.8)
-    gravity: float = -9.81
-    sprint_speed: float = 8.0
-
-    passivregen: float = 5.0
-    armor_value: float = 0.0
-
-    def __init__(self, x: float, y: float, world: World) -> None:
-        super().__init__(
-            maxhealth=self.maxhealth,
-            maxstagger=self.maxstagger,
-            walkspeed=self.default_walk_speed,
-            dmg=self.Defaultdmg,
-            attackspeed=self.default_attack_speed,
-            x=x,
-            y=y,
-            world=world,
-            badEntity=False,
-        )
-        self.passivregen = Player.passivregen
-        self.armor_value = Player.armor_value
-        self.jump_power = Player.jump_power
-        self.sprint_speed = Player.sprint_speed
-
-    # --- combat ---
+    def __init__(self, x: float, y: float) -> None:
+        super().__init__(PLAYER_STATS, x, y)
 
     def parry(self) -> None:
         self.is_parrying = True
-        self.walkspeed = self.default_walk_speed * 0.5
+        self.walkspeed = self.walk_speed * 0.5
 
     def stop_parry(self) -> None:
         self.is_parrying = False
         if not self.is_staggered:
-            self.walkspeed = self.default_walk_speed
+            self.walkspeed = self.walk_speed
 
     def block(self) -> None:
         self.is_blocking = True
@@ -370,9 +379,63 @@ class Player(Entity):
     def stop_block(self) -> None:
         self.is_blocking = False
 
-    def update_entity(self, dt: float) -> None:
-        super().update_entity(dt)
+    def swim_up(self) -> None:
+        if self.in_water:
+            self.vel_y += 1.0 / BLOCK_SPEED[Block.WATER.value]
+
+    def swim_down(self) -> None:
+        if self.in_water:
+            self.vel_y -= 1.0 / BLOCK_SPEED[Block.WATER.value]
+
+    def update(self, dt: float, in_water: bool) -> None:
+        super().update(dt, in_water)
         self.regeneration(dt)
 
 
-# --- Mob ---
+# ---------------------------------------------------------------------------
+# Mob
+# ---------------------------------------------------------------------------
+
+
+class Mob(Entity):
+    detect_range_x: float = 200.0
+    detect_range_y: float = 120.0
+    chase_range_x: float = 350.0
+    chase_range_y: float = 200.0
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        stats: EntityStats = MOB_STATS,
+    ) -> None:
+        super().__init__(stats, x, y)
+        self.has_aggro = False
+
+    def focus_player(self, player: Player) -> None:
+        dx = abs(player.x - self.x)
+        dy = abs(player.y - self.y)
+
+        if not self.has_aggro:
+            if dx < self.detect_range_x and dy < self.detect_range_y:
+                self.has_aggro = True
+        else:
+            if dx > self.chase_range_x or dy > self.chase_range_y:
+                self.has_aggro = False
+
+    def move_towards_player(self, player: Player) -> None:
+        if not self.has_aggro or self.is_staggered:
+            self.vel_x = 0.0
+            return
+
+        if player.x > self.x:
+            self.vel_x = self.walk_speed
+        elif player.x < self.x:
+            self.vel_x = -self.walk_speed
+        else:
+            self.vel_x = 0.0
+
+    def update_focus(self, player: Player, dt: float, in_water: bool) -> None:
+        self.focus_player(player)
+        self.move_towards_player(player)
+        super().update(dt, in_water)

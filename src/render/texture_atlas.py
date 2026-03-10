@@ -3,7 +3,7 @@ import math
 import moderngl
 import pygame
 
-from src.assets import TEXTURES
+from src.assets import get_texture
 from src.blocks import BLOCK_TO_TEXTURE, Block
 
 
@@ -26,7 +26,7 @@ class TextureAtlas:
             if texture is None:
                 continue
 
-            tex = TEXTURES.get_texture(texture)
+            tex = get_texture(texture).surface()
 
             if tex is None:
                 continue

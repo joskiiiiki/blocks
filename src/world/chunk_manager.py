@@ -482,7 +482,7 @@ class ChunkManager:
 
         tmp_data = data_path.with_suffix(".tmp")
         with tmp_data.open("w") as f:
-            json.dump(chunk.data(), f)
+            f.write(chunk.to_data_json())
         tmp_data.replace(data_path)
 
     def _load_from_disk(self, chunk_x: int) -> Chunk | None:
@@ -513,8 +513,9 @@ class ChunkManager:
         chunk_x = math.floor(x) // self.width
         local_x = x - chunk_x * self.width
 
-        assert local_x < 32
-        assert local_x >= 0
+        if local_x < 0 or local_x >= self.width:
+            print(f"Invalid X coordinate: {chunk_x} {local_x}")
+            return None
 
         if y < 0 or y >= self.height:
             return None

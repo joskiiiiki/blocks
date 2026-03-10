@@ -33,11 +33,11 @@ class Block(Enum):
         return self.name
 
     @staticmethod
-    def get_texture_from_id(block_data: int) -> pygame.Surface | None:
+    def get_texture_from_id(block_data: int) -> assets.Texture | None:
         name = BLOCK_TO_TEXTURE[block_data]
         if not name:
             return None
-        return assets.TEXTURES.get_texture(name)
+        return assets.get_texture(name)
 
     def get_texture_name(self) -> str | None:
         name = BLOCK_TO_TEXTURE.get(self.value)
@@ -52,12 +52,12 @@ class Block(Enum):
         d = [d[1] << d[0] for d in data]
         return self.value | sum(d) << 8
 
-    def get_texture(self) -> pygame.Surface | None:
+    def get_texture(self) -> assets.Texture | None:
         name = BLOCK_TO_TEXTURE[self.value]
         if not name:
             return None
         print(assets.TEXTURES)
-        return assets.TEXTURES.get_texture(name)
+        return assets.get_texture(name)
 
     def get_item(self) -> Item | None:
         id = blocks_to_items.get(self.value)
@@ -86,7 +86,12 @@ BLOCK_TO_TEXTURE: dict[int, str | None] = {
 }
 
 
-NONCOLLIDABLE_BLOCKS = {Block.AIR.value, Block.WATER.value, Block.TORCH.value, Block.COPPER_TORCH.value}
+NONCOLLIDABLE_BLOCKS = {
+    Block.AIR.value,
+    Block.WATER.value,
+    Block.TORCH.value,
+    Block.COPPER_TORCH.value,
+}
 
 
 def get_block_id_checked(block_data: BlockData) -> Block:
@@ -145,17 +150,17 @@ class Item(Enum):
         return Block(block_id) if block_id is not None else None
 
     @staticmethod
-    def get_texture_from_id(id: int) -> pygame.Surface | None:
+    def get_texture_from_id(id: int) -> assets.Texture | None:
         name = ITEM_TEXTURES.get(id)
         if not name:
             return None
-        return assets.TEXTURES.get_texture(name)
+        return assets.get_texture(name)
 
-    def get_texture(self) -> pygame.Surface | None:
+    def get_texture(self) -> assets.Texture | None:
         name = ITEM_TEXTURES.get(self.value)
         if not name:
             return None
-        return assets.TEXTURES.get_texture(name)
+        return assets.get_texture(name)
 
 
 ITEM_TO_BLOCK: dict[int, int] = {

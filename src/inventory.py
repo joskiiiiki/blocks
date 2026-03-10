@@ -136,6 +136,7 @@ class Hotbar:
             texture = item.get_texture()
 
             if texture is not None:
+                texture = texture.surface()
                 item_x = x + (self.slot_size_px[0] - texture.width) // 2
                 item_y = y + (self.slot_size_px[1] - texture.height) // 2
                 screen.blit(texture, (item_x, item_y))

@@ -1,11 +1,11 @@
 from __future__ import annotations
-import signal
-import sys
-import atexit
 
+import atexit
 import json
 import os
 import pathlib
+import signal
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -13,6 +13,7 @@ import numpy as np
 import pygame
 
 from src.blocks import Block, is_solid
+from src.interfaces import IWorld
 from src.world.chunk import CHUNK_HEIGHT, CHUNK_WIDTH
 from src.world.chunk_manager import ChunkManager
 from src.world.gen_context import WorldGenContext
@@ -70,7 +71,7 @@ class WorldData:
         }
 
 
-class World:
+class World(IWorld):
     chunk_manager: ChunkManager
     world_path: pathlib.Path
     lock_path: pathlib.Path
@@ -86,7 +87,6 @@ class World:
         self.world_path = path
         self.lock_path = self.world_path / ".lock"
 
-
         exists = path.exists() and path.is_dir()
 
         self.on_block_changed = on_block_changed
@@ -100,7 +100,6 @@ class World:
         elif not self.acquire():
             raise Exception(f"Could not aquire lock on {self.world_path}")
         else:
-
             world_data_path = path / "world.json"
             world_data_path.touch(exist_ok=True)
             world_data = WorldData.from_file(world_data_path)
@@ -134,8 +133,6 @@ class World:
             print(f"Released lock on {self.world_path}")
         except Exception as e:
             print(f"Failed to release lock on {self.world_path}: {e}")
-            
-            
 
     def acquire(self) -> bool:
         if self.lock_path.exists():
@@ -143,7 +140,7 @@ class World:
             return False
 
         try:
-            self.lock_path.touch(exist_ok = False)
+            self.lock_path.touch(exist_ok=False)
             print(f"Lock aquired for {self.world_path}")
 
             atexit.register(self.release)
@@ -200,4 +197,3 @@ class World:
 
     def world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
         return self.chunk_manager._world_to_chunk(x, y)
-

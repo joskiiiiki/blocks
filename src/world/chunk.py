@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 from enum import Enum
 from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt
-from pyfastnoiselite.pyfastnoiselite import FractalType, NoiseType  # ty:ignore[unresolved-import]
+from pyfastnoiselite.pyfastnoiselite import (  # ty:ignore[unresolved-import]
+    FractalType,
+    NoiseType,
+)
 
 from src.blocks import BLOCK_ID_MASK, Block, BlockData, is_solid
 from src.world.gen_context import WorldGenContext
@@ -22,6 +26,7 @@ class ChunkStatus(Enum):
 
 class ChunkData(TypedDict):
     status: int
+    # entities: list[Entity]
 
 
 class Chunk:
@@ -30,6 +35,7 @@ class Chunk:
     width: int = CHUNK_WIDTH
     height: int = CHUNK_HEIGHT
     blocks: npt.NDArray[BlockData]
+    # entities: list[Entity]
 
     def __init__(
         self,
@@ -56,10 +62,12 @@ class Chunk:
         chunk.set_data(data)
         return chunk
 
-    def data(self) -> ChunkData:
-        return {
-            "status": self.status.value,
-        }
+    def to_data_json(self) -> str:
+        return json.dumps(
+            {
+                "status": self.status.value,
+            }
+        )
 
     def set_data(self, data: ChunkData):
         self.status = ChunkStatus(data["status"])
@@ -222,7 +230,9 @@ class Chunk:
         if not np.any(stone_mask):
             return
 
-        cave_mask = stone_mask & ((noise > noise_threshold) | ( worm_noise > worm_threshold))
+        cave_mask = stone_mask & (
+            (noise > noise_threshold) | (worm_noise > worm_threshold)
+        )
 
         region[cave_mask] = Block.AIR.value
 

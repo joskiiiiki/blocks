@@ -4,7 +4,9 @@ import moderngl
 import pygame
 
 from src import assets
-from src.entities import Enemy
+from src.blocks import Block
+from src.entities import Zombie
+from src.physics import get_touching_blocks, physics_step
 from src.player import Player
 from src.render import ChunkRendererGL, PygameOverlay
 from src.render.lighting import LightingManagerGL
@@ -39,7 +41,6 @@ class Game:
         self._screen = pygame.display.set_mode(
             self.resolution, flags=pygame.RESIZABLE | pygame.DOUBLEBUF | pygame.OPENGL
         )
-        assets.TEXTURES.load()
         self.ctx = moderngl.create_context()
         # self.lighting_manager = LightingManagerGL(self.world.chunk_manager, self.gl_ctx)
         self.lighting_manager = LightingManagerGL(self.world.chunk_manager, self.ctx)
@@ -55,7 +56,6 @@ class Game:
         self.player = Player(
             x=2,
             y=265,
-            world=self.world,
             delta_t=1 / self.framerate,
         )
         self.clock = pygame.time.Clock()
@@ -64,9 +64,9 @@ class Game:
     def main(self):
         self.world.update_chunk_cache()
         self.running = True
-        delta_t = 1 / self.framerate
+        dt = 1 / self.framerate
 
-        enemy = Enemy(0, 280, self.world)
+        enemy = Zombie(0, 280)
 
         while self.running:
             # self._screen.fill(assets.COLOR_SKY)
@@ -84,10 +84,14 @@ class Game:
             if keys[pygame.K_ESCAPE]:
                 self.running = False
 
-            self.player.update(delta_t, self.resolution)
+            in_water = Block.WATER.value in get_touching_blocks(self.player, self.world)
+            self.player.update_player(dt, self.resolution, in_water, self.world)
+            physics_step(self.player, self.world, dt)
 
-            enemy.update_focus(self.player, delta_t)
-            enemy.update_entity(delta_t)
+            in_water = Block.WATER.value in get_touching_blocks(enemy, self.world)
+
+            enemy.update_focus(self.player, dt)
+            enemy.update(dt, in_water)
 
             self.world.player_pos = self.player.xy
 
@@ -117,7 +121,7 @@ class Game:
             self.overlay.render()
 
             pygame.display.flip()
-            delta_t = self.clock.tick(self.framerate) / 1000  # convert to seconds
+            dt = self.clock.tick(self.framerate) / 1000  # convert to seconds
 
     def on_resize(self, resolution: tuple[int, int]):
         self.overlay.on_resize(resolution)

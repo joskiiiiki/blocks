@@ -3,6 +3,7 @@ import math
 import pygame
 
 from src.assets import TILE_SIZE
+from src.entity import EntityStats
 from src.mob import Mob
 from src.utils import world_to_screen
 from src.world import World
@@ -10,10 +11,21 @@ from src.world import World
 ENEMY_SPRITE = pygame.Surface((32, 64))
 ENEMY_SPRITE.fill((255, 0, 0))
 
+ZOMBIE_STATS = EntityStats(
+    maxhealth=100,
+    maxstagger=60,
+    walk_speed=2.5,
+    dmg=8,
+    attack_speed=1.5,
+    armor_value=0.0,
+    jump_power=6.0,
+    bbox_size=(0.8, 1.8),
+)
 
-class Enemy(Mob):
-    def __init__(self, x: int, y: int, world: World):
-        super().__init__(x, y, world)
+
+class Zombie(Mob):
+    def __init__(self, x: int, y: int):
+        super().__init__(x, y, stats=ZOMBIE_STATS)
 
     def draw(
         self,
@@ -36,8 +48,8 @@ class Enemy(Mob):
         )
 
         # offset so feet sit on the ground (sprite height = bbox height in pixels)
-        sprite_w = int(self.bounding_box.size.x * TILE_SIZE)
-        sprite_h = int(self.bounding_box.size.y * TILE_SIZE)
+        sprite_w = ENEMY_SPRITE.width
+        sprite_h = ENEMY_SPRITE.height
         surface.blit(ENEMY_SPRITE, (screen_x, screen_y - sprite_h))
 
         # health bar

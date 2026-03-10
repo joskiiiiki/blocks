@@ -77,6 +77,10 @@ class BoundingBox:
     def center(self) -> Vector2:
         return self.position + self.size / 2
 
+    @center.setter
+    def center(self, value: Vector2) -> None:
+        self.position = value - self.size / 2
+
 
 def index_range(bounding_box: BoundingBox):
     """
@@ -215,7 +219,7 @@ def sweep_collision(
     bounding_box: BoundingBox,
     velocity: Vector2,
     is_solid: Callable[[float, float], bool],
-) -> tuple[Vector2, Vector2, bool, bool]:
+) -> tuple[Vector2, Vector2, bool, bool, bool, bool]:
     on_ground = False
     hit_ceiling = False
 
@@ -225,13 +229,13 @@ def sweep_collision(
     current_pos = bounding_box.position.copy()
 
     # Test X movement
+    x_collision = False
     if vel.x != 0:
         # Create test box at the NEW position
         test_pos = current_pos + Vector2(vel.x, 0)
         test_box = BoundingBox(test_pos, bounding_box.size)
 
         (x_min, y_min), (x_max, y_max) = index_range(test_box)
-        x_collision = False
 
         for y in range(y_min, y_max + 1):
             for x in range(x_min, x_max + 1):
@@ -249,13 +253,13 @@ def sweep_collision(
             current_pos.x += vel.x
 
     # Test Y movement from the X-resolved position
+    y_collision = False
     if vel.y != 0:
         # Create test box at the NEW position (includes x movement if it happened)
         test_pos = current_pos + Vector2(0, vel.y)
         test_box = BoundingBox(test_pos, bounding_box.size)
 
         (x_min, y_min), (x_max, y_max) = index_range(test_box)
-        y_collision = False
 
         for y in range(y_min, y_max + 1):
             for x in range(x_min, x_max + 1):
@@ -284,4 +288,4 @@ def sweep_collision(
             # No collision - update position
             current_pos.y += vel.y
 
-    return current_pos, vel, on_ground, hit_ceiling
+    return current_pos, vel, on_ground, hit_ceiling, x_collision, y_collision

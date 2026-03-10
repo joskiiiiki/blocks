@@ -93,8 +93,6 @@ class LightingManagerGL:
             chunk_x_max: Maximum chunk X coordinate
             iterations: Number of propagation iterations (increase for larger areas)
         """
-        tt0 = time()
-        print(f"Calculating GPU lighting for chunks {chunk_x_min} to {chunk_x_max}")
 
         # Stitch chunks together horizontally
         combined_blocks = []
@@ -110,19 +108,15 @@ class LightingManagerGL:
         # Concatenate along X axis (chunks side-by-side)
         combined = np.concatenate(combined_blocks, axis=0)  # [total_width, height]
 
-        print(f"  Combined shape (numpy): {combined.shape} [width, height]")
-
         # Get dimensions
         np_width, np_height = combined.shape
 
         # Build light sources BEFORE transposing
-        t0 = time()
+
         light_sources, sunlit = self._build_light_sources(combined)
-        t1 = time()
-        print(f"Buildings Lightsources: {t1 - t0}")
 
         # Create block ID map
-        t0 = time()
+
         block_ids = (combined & BLOCK_ID_MASK).astype(np.uint8)
 
         block_ids_transposed = block_ids.T  # Now [height, width]
@@ -133,14 +127,6 @@ class LightingManagerGL:
         # OpenGL texture dimensions (width, height)
         tex_width = np_width  # World X dimension
         tex_height = np_height  # World Y dimension
-
-        t1 = time()
-
-        print("Transposing: ", t1 - t0)
-
-        print(f"  GPU texture size: {tex_width}x{tex_height} (width x height)")
-
-        t0 = time()
 
         # Upload to GPU
         # Block map: R8UI (single channel, 8-bit unsigned int)
@@ -186,12 +172,6 @@ class LightingManagerGL:
         groups_x = (tex_width + 15) // 16
         groups_y = (tex_height + 15) // 16
 
-        t1 = time()
-        print("Uploading: ", t1 - t0)
-
-        print(f"  Running {iterations} iterations [{groups_x}x{groups_y} work groups]")
-
-        t0 = time()
         # PING-PONG propagation
         for i in range(iterations):
             if i % 2 == 0:
@@ -211,11 +191,6 @@ class LightingManagerGL:
 
         # Final sync
         self.ctx.finish()
-        t1 = time()
-
-        print("Compute", t1 - t0)
-
-        t0 = time()
 
         # Read back final result
         final_texture = light_map_b if iterations % 2 == 0 else light_map_a
@@ -228,8 +203,6 @@ class LightingManagerGL:
         light_map = np.transpose(light_map, (1, 0, 2))  # [width, height, 4]
         light_map = light_map[:, :, :3]  # Drop alpha channel, keep RGB
 
-        print(f"  Result shape: {light_map.shape}")
-
         # Split back into individual chunks
         chunk_width = self.chunk_manager.width
         for i, chunk_x in enumerate(range(chunk_x_min, chunk_x_max + 1)):
@@ -238,19 +211,11 @@ class LightingManagerGL:
             self.lightmaps[chunk_x] = light_map[start_x:end_x, :, :]
             self.skymaps[chunk_x] = sunlit[start_x:end_x, :]  # [chunk_width, height]
 
-        t1 = time()
-
-        print("Transposing 2", t1 - t0)
-
         # Cleanup GPU resources
         block_texture.release()
         light_source_texture.release()
         light_map_a.release()
         light_map_b.release()
-
-        tt1 = time()
-
-        print(f"  ✓ GPU lighting complete {tt1 - tt0}")
 
     def get_lightmap(self, chunk_x: int) -> npt.NDArray[np.float32] | None:
         """Get lightmap for a chunk (returns None if not calculated)"""

@@ -34,7 +34,9 @@ def astar(
         if node == goal:
             return path
 
-        for neighbour, cost in get_neighbours(node):
+        neighbours = list(get_neighbours(node))
+
+        for neighbour, cost in neighbours:
             if neighbour not in visited:
                 new_g: float = g + cost
                 new_f: float = new_g + heuristic(neighbour)

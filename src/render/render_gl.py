@@ -380,7 +380,7 @@ class ChunkRendererGL:
         sky_map.filter = (moderngl.NEAREST, moderngl.NEAREST)
         sky_map.use(2)
 
-        background = TEXTURES.get_texture("stone_background")
+        background = TEXTURES["stone_background"].surface()
         background_texture = self.ctx.texture(
             (32, 32),
             4,
