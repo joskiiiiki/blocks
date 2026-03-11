@@ -1,8 +1,9 @@
 import pygame
 
 from src.assets import TILE_SIZE
-from src.entity import ZOMBIE_STATS
-from src.mob import Mob
+from src.entity.entity import ENTITY_REGISTRY
+from src.entity.mob import Mob
+from src.entity.stats import ZOMBIE_STATS
 from src.utils import world_to_screen
 
 ENEMY_SPRITE = pygame.Surface((32, 64))
@@ -10,8 +11,13 @@ ENEMY_SPRITE.fill((255, 0, 0))
 
 
 class Zombie(Mob):
-    def __init__(self, x: int, y: int):
-        super().__init__(x, y, stats=ZOMBIE_STATS)
+    def __init__(self, x: float, y: float, stats=ZOMBIE_STATS):
+        super().__init__(x, y, stats=stats)
+
+    def to_json(self) -> dict:
+        return super().to_json() | {
+            "type": "Zombie",
+        }
 
     def draw(
         self,
@@ -59,3 +65,6 @@ class Zombie(Mob):
             (80, 80, 220),
             (bar_x, bar_y, int(bar_w * self.stagger / self.maxstagger), bar_h),
         )
+
+
+ENTITY_REGISTRY["Zombie"] = Zombie

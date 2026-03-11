@@ -9,7 +9,8 @@ from typing import Iterable, Optional
 import numpy as np
 
 from src.blocks import Block
-from src.entity import Entity, Mob
+from src.entity.entity import Entity
+from src.entity.mob import Mob
 from src.world.chunk import Chunk, ChunkStatus
 from src.world.utils import smooth_caves_with_neighbors, smooth_mask_ce
 
@@ -82,7 +83,7 @@ class ChunkManager:
 
         print(f"Queueing {len(chunks_to_save)} chunks for saving")
         for chunk_x in chunks_to_save:
-            self._queue_save(chunk_x)
+            self._queue_save(chunk_x, entities=self.entities.copy())
 
         # Wait for save queue to empty
         self._save_queue.join()
@@ -353,6 +354,10 @@ class ChunkManager:
         if generate_if_not_exists:
             self.queue_generation(chunk_x)
 
+    def load_chunks(self, chunks: Iterable[int]):
+        for chunk_x in chunks:
+            self.load_chunk(chunk_x)
+
     def load_chunks_only(self, chunks: Iterable[int]):
         """Load only the specified chunks, unloading others"""
         chunks_set = set(chunks)
@@ -370,6 +375,7 @@ class ChunkManager:
             self.load_chunk(chunk_x)
 
     def unload_chunk(self, chunk_x: int, entities: list[Entity]) -> None:
+        print(f"unloading {chunk_x}")
         with self._cache_lock:
             chunk = self._chunk_cache.pop(chunk_x, None)
             self._decoration_pending.discard(chunk_x)
@@ -379,6 +385,7 @@ class ChunkManager:
             to_remove = [
                 e for e in entities if math.floor(e.x) // self.width == chunk_x
             ]
+
             for e in to_remove:
                 entities.remove(e)
             self._queue_save(chunk_x, chunk, to_remove)
@@ -464,13 +471,14 @@ class ChunkManager:
         self,
         chunk_x: int,
         chunk: Chunk | None = None,
-        entities: list[Entity] | None = None,
+        entities: list[Entity] = [],
     ) -> None:
         if chunk is None:
             with self._cache_lock:
                 chunk = self._chunk_cache.get(chunk_x)
         if chunk is not None:
-            self._save_queue.put((chunk_x, chunk.copy(), list(entities or [])))
+            print("Entities", list(entities))
+            self._save_queue.put((chunk_x, chunk.copy(), list(entities)))
 
     def _write_chunk_to_disk(self, chunk_x: int, chunk: Chunk, entities: list[Entity]):
         """Write chunk to disk (called by save worker)"""
@@ -492,7 +500,9 @@ class ChunkManager:
 
         tmp_data = data_path.with_suffix(".tmp")
         with tmp_data.open("w") as f:
-            f.write(chunk.to_data_json(entities))
+            data = chunk.to_data_json(entities)
+            print(data)
+            f.write(data)
         tmp_data.replace(data_path)
 
     def _load_from_disk(self, chunk_x: int) -> Chunk | None:

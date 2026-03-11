@@ -4,10 +4,13 @@ import moderngl
 import pygame
 
 from src.blocks import Block
-from src.entity import Mob
+from src.combat import process_combat
+from src.entity.mob import Mob
+from src.entity.zombie import Zombie
 from src.physics import get_touching_blocks, physics_step
-from src.player import Player
+from src.player import HIT_FLASH_DURATION, Player
 from src.render import ChunkRendererGL, PygameOverlay
+from src.render.damage import DamageOverlay
 from src.render.lighting import LightingManagerGL
 from src.world import World, world_path
 
@@ -29,6 +32,7 @@ class Game:
     font: pygame.Font
     # lighting_manager: LightingManagerGL
     ctx: moderngl.Context
+    damage_overlay: DamageOverlay
 
     def __init__(self, world_path: Path):
         pygame.init()
@@ -60,6 +64,8 @@ class Game:
         self.clock = pygame.time.Clock()
         self.font = pygame.Font(None, FONT_SIZE)
 
+        self.damage_overlay = DamageOverlay(self.ctx, HIT_FLASH_DURATION)
+
     def main(self):
         self.world.update_chunk_cache()
         self.running = True
@@ -87,6 +93,15 @@ class Game:
 
             self.world.update_mobs(self.player, dt)
 
+            mobs = filter(
+                lambda e: isinstance(e, Mob), self.world.chunk_manager.entities
+            )
+            combat_results = process_combat(
+                self.player,
+                mobs,
+                dt,
+            )
+
             self.world.player_pos = self.player.xy
             self.world.update_chunk_cache()
 
@@ -94,8 +109,7 @@ class Game:
             self.player.draw(self.overlay.surface, self.resolution)
 
             for mob in self.world.chunk_manager.entities:
-                if isinstance(mob, Mob):
-                    print(mob.bounding_box.position)
+                if isinstance(mob, Zombie):
                     mob.draw(
                         self.overlay.surface,
                         self.resolution,
@@ -118,6 +132,11 @@ class Game:
 
             self.overlay.render()
 
+            self.damage_overlay.render(
+                self.player.hit_flash_timer,
+                self.resolution,
+            )
+
             pygame.display.flip()
             dt = self.clock.tick(self.framerate) / 1000  # convert to seconds
 
@@ -137,6 +156,7 @@ class Game:
     def on_exit(self):
         self.world.chunk_manager.shutdown()
         self.overlay.on_destroy()  # release buffers
+        self.damage_overlay.destroy()
         pygame.quit()
 
 

@@ -1,7 +1,7 @@
 # --- physics helper (lives in your game loop or a physics module) ---
 from src.blocks import BLOCK_ID_MASK, is_solid
 from src.collision import sweep_collision
-from src.entity import Entity, PhysicsResult
+from src.entity.entity import Entity, PhysicsResult
 from src.interfaces import IWorld
 
 

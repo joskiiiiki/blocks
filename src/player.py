@@ -8,7 +8,8 @@ import pygame
 
 from src.assets import TILE_SIZE, get_animation, get_texture
 from src.blocks import BLOCK_SPEED, Block, Item
-from src.entity import Player as _PlayerBase
+from src.entity.entity import Entity
+from src.entity.stats import PLAYER_STATS
 from src.interfaces import IWorld
 from src.inventory import Hotbar, Inventory
 from src.utils import screen_to_world, to_block, world_to_screen
@@ -32,15 +33,16 @@ PLAYER_WIDTH = 21
 BLOCK_SELECTION = pygame.Surface((32, 32), flags=pygame.SRCALPHA)
 BLOCK_SELECTION.fill(pygame.Color(255, 255, 255, 255 // 5))
 
+HIT_FLASH_DURATION = 0.35
 
-class Player(_PlayerBase):
-    """Full player: extends the combat/physics Player with world interaction,
-    inventory, input handling, block breaking/placing, and rendering."""
 
+class Player(Entity):
     # --- world interaction ---
     break_progress: tuple[float, float, int, int] | None = None
     cursor_position: tuple[int, int] = (0, 0)
     cursor_position_world: tuple[float, float] = (0.0, 0.0)
+
+    hit_flash_timer: float = 0.0
 
     default_walk_speed = 5
     sprint_speed = 8
@@ -52,6 +54,9 @@ class Player(_PlayerBase):
     is_facing_right: bool = False
 
     is_mining: bool = False
+    is_attacking: bool = False
+
+    attack_bbox_grow = pygame.Vector2(3.0, 0.5)
 
     def __init__(
         self,
@@ -59,7 +64,7 @@ class Player(_PlayerBase):
         y: float,
         delta_t: Optional[float] = None,
     ) -> None:
-        super().__init__(x=x, y=y)
+        super().__init__(x=x, y=y, stats=PLAYER_STATS)
 
         if delta_t is not None:
             self.delta_t = delta_t
@@ -92,6 +97,8 @@ class Player(_PlayerBase):
 
         self.vel_x = 0.0
         speed = self.sprint_speed if keys[pygame.K_LSHIFT] else self.default_walk_speed
+
+        self.is_attacking = keys[pygame.K_r]
 
         if keys[pygame.K_a]:
             self.is_facing_right = False
@@ -144,7 +151,28 @@ class Player(_PlayerBase):
         else:
             self.is_mining = False
 
-    # --- swim uses BLOCK_SPEED (needs game imports, so defined here) ---
+        # --- swim uses BLOCK_SPEED (needs game imports, so defined here) ---
+
+    def take_damage(
+        self, damage: float, stagger_damage: float, knockback: pygame.Vector2
+    ) -> None:
+        super().take_damage(damage, stagger_damage, knockback)
+        self.hit_flash_timer = HIT_FLASH_DURATION
+
+    def parry(self) -> None:
+        self.is_parrying = True
+        self._walk_speed_modifier = 0.5
+
+    def stop_parry(self) -> None:
+        self.is_parrying = False
+        if not self.is_staggered:
+            self._walk_speed_modifier = 1.0
+
+    def block(self) -> None:
+        self.is_blocking = True
+
+    def stop_block(self) -> None:
+        self.is_blocking = False
 
     def swim_up(self) -> None:
         if self.in_water:
@@ -160,7 +188,7 @@ class Player(_PlayerBase):
         x, y = to_block(*self.cursor_position_world)
 
         if self.break_progress is None or self.break_progress[2:4] != (x, y):
-            self.break_progress = (0.25, time(), x, y)
+            self.break_progress = (0.05, time(), x, y)
             return False
 
         duration = self.break_progress[0]
@@ -200,6 +228,10 @@ class Player(_PlayerBase):
 
     # --- update ---
 
+    def update_entity(self, dt: float, in_water: bool) -> None:
+        super().update_entity(dt, in_water)
+        self.regeneration(dt)
+
     def update_player(
         self,
         delta_t: float,
@@ -207,6 +239,10 @@ class Player(_PlayerBase):
         in_water: bool,
         i_world: IWorld,
     ) -> None:
+        if self.hit_flash_timer > 0:
+            print(self.hit_flash_timer, delta_t)
+            self.hit_flash_timer -= delta_t
+
         if self.is_dead:
             return
 
@@ -277,15 +313,16 @@ class Player(_PlayerBase):
         # fallback
         return PLAYER.surface()  # --- draw ---
 
-    def draw(self, surface: pygame.Surface, resolution: tuple[int, int]) -> None:
-        ox = (
-            resolution[0] // 2 - (1 - self.bounding_box.size.x) * TILE_SIZE / 2
-        )  # takes offset due to bounding box size being smaller into account
-        oy = resolution[1] // 2
+    def attack(self) -> bool:
+        if not self.is_attacking:
+            return False
+        return super().attack()
 
+    def draw(self, surface: pygame.Surface, resolution: tuple[int, int]) -> None:
+        ox = resolution[0] // 2 - (1 - self.bounding_box.size.x) * TILE_SIZE / 2
+        oy = resolution[1] // 2
         x = ox - PLAYER_WIDTH
         y = oy - PLAYER_SPRITE_HEIGHT
-
         frame = self.current_frame()
         surface.blit(frame, (x, y))
 
@@ -307,4 +344,27 @@ class Player(_PlayerBase):
             (pos_screen_x, pos_screen_y - TILE_SIZE),
             special_flags=pygame.BLEND_ALPHA_SDL2,
         )
+
+        # --- health & stagger bars ---
+        BAR_W, BAR_H = 200, 12
+        BAR_X = 20
+        BAR_Y = resolution[1] - 50
+        GAP = 18
+
+        # health bar
+        pygame.draw.rect(surface, (60, 0, 0), (BAR_X, BAR_Y, BAR_W, BAR_H))
+        health_w = int(BAR_W * max(self.health / self.maxhealth, 0))
+        pygame.draw.rect(surface, (220, 40, 40), (BAR_X, BAR_Y, health_w, BAR_H))
+        pygame.draw.rect(surface, (255, 255, 255), (BAR_X, BAR_Y, BAR_W, BAR_H), 1)
+
+        # stagger bar
+        pygame.draw.rect(surface, (30, 30, 80), (BAR_X, BAR_Y + GAP, BAR_W, BAR_H))
+        stagger_w = int(BAR_W * max(self.stagger / self.maxstagger, 0))
+        pygame.draw.rect(
+            surface, (80, 120, 220), (BAR_X, BAR_Y + GAP, stagger_w, BAR_H)
+        )
+        pygame.draw.rect(
+            surface, (255, 255, 255), (BAR_X, BAR_Y + GAP, BAR_W, BAR_H), 1
+        )
+
         self.hotbar.draw(surface, self.inventory.get_hotbar_slots())

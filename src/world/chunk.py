@@ -13,7 +13,7 @@ from pyfastnoiselite.pyfastnoiselite import (  # ty:ignore[unresolved-import]
 )
 
 from src.blocks import BLOCK_ID_MASK, Block, BlockData, is_solid
-from src.entity import Entity
+from src.entity.entity import Entity
 from src.world.gen_context import WorldGenContext
 
 CHUNK_WIDTH = 32

@@ -7,16 +7,18 @@ import pathlib
 import random
 import signal
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from typing import Any
 
 import numpy as np
 import pygame
 
 from src.blocks import Block, is_solid
-from src.entity import ZOMBIE_STATS, Mob
+from src.entity.mob import Mob
+from src.entity.zombie import Zombie
 from src.interfaces import IWorld
 from src.physics import get_touching_blocks, physics_step
+from src.player import Player
 from src.world.chunk import CHUNK_HEIGHT, CHUNK_WIDTH
 from src.world.chunk_manager import ChunkManager
 from src.world.gen_context import WorldGenContext
@@ -209,7 +211,10 @@ class World(IWorld):
     def world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
         return self.chunk_manager._world_to_chunk(x, y)
 
-    def update_mobs(self, player, dt: float) -> None:
+    def update_mobs(self, player: Player, dt: float) -> None:
+        self.chunk_manager.entities = [
+            e for e in self.chunk_manager.entities if not e.is_dead
+        ]  # filter out dead entities
         self._spawn_timer -= dt / 1000.0
         if self._spawn_timer <= 0:
             self._spawn_timer = SPAWN_INTERVAL
@@ -218,7 +223,7 @@ class World(IWorld):
         for mob in self.chunk_manager.entities:
             in_water = Block.WATER.value in get_touching_blocks(mob, self)
             if isinstance(mob, Mob):
-                mob.update_focus(player, dt, in_water)
+                mob.update_focus(player.xy, dt, in_water)
             physics_step(mob, self, dt)
 
     def _try_spawn(self, player) -> None:
@@ -243,14 +248,14 @@ class World(IWorld):
             for y in range(self.chunk_manager.height - 2, 0, -1):
                 if (
                     chunk.blocks[local_x, y] != Block.AIR.value
-                    and chunk.blocks[local_x, y - 1] == Block.AIR.value
+                    and chunk.blocks[local_x, y + 1] == Block.AIR.value
                 ):
-                    surface_y = y - 1
+                    surface_y = y + 1
                     break
 
             if surface_y is None:
                 continue
 
-            mob = Mob(x=float(int(x)) + 0.5, y=float(surface_y), stats=ZOMBIE_STATS)
+            mob = Zombie(x=float(int(x)) + 0.5, y=float(surface_y))
             self.chunk_manager.add_entity(mob)
             return  # one mob per tick

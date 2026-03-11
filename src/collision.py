@@ -81,6 +81,12 @@ class BoundingBox:
     def center(self, value: Vector2) -> None:
         self.position = value - self.size / 2
 
+    def __repr__(self) -> str:
+        return f"BoundingBox(position={self.position}, size={self.size})"
+
+    def __str__(self) -> str:
+        return f"BoundingBox(position={self.position}, size={self.size})"
+
 
 def index_range(bounding_box: BoundingBox):
     """
@@ -100,6 +106,12 @@ def index_range(bounding_box: BoundingBox):
     y_max = int(math.floor(bounding_box.position.y + bounding_box.size.y - 1e-9))
 
     return (x_min, y_min), (x_max, y_max)
+
+
+def aabb_overlap(a: BoundingBox, b: BoundingBox) -> bool:
+    return (
+        a.left < b.right and a.right > b.left and a.bottom < b.top and a.top > b.bottom
+    )
 
 
 def aabb_collision_block(

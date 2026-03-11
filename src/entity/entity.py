@@ -1,63 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import pygame
 
+from src.bboxed import BoundingBoxed
 from src.blocks import BLOCK_SPEED, Block
 from src.collision import BoundingBox
-
-# ---------------------------------------------------------------------------
-# Stat blocks
-# ---------------------------------------------------------------------------
+from src.entity.stats import EntityStats
 
 
-@dataclass
-class EntityStats:
-    maxhealth: int
-    maxstagger: int
-    walk_speed: float
-    dmg: int
-    attack_speed: float
-    bbox_size: tuple[float, float]
-    jump_power: float = 6.0
-    gravity: float = -9.81
-    armor_value: float = 0.0
-    passivregen: float = 0.0
-    sprint_speed: float = 0.0  # 0 = no sprinting
+class EntityConstructor(Protocol):
+    def __call__(self, x: float, y: float) -> Entity: ...
 
 
-PLAYER_STATS = EntityStats(
-    maxhealth=200,
-    maxstagger=100,
-    walk_speed=5.0,
-    dmg=10,
-    attack_speed=1.0,
-    bbox_size=(0.8, 1.8),
-    jump_power=12.0,
-    armor_value=0.0,
-    passivregen=5.0,
-    sprint_speed=8.0,
-)
-
-ENTITY_REGISTRY: dict[str, "EntityStats"] = {}  # populated after stats are defined
-
-ZOMBIE_STATS = EntityStats(
-    maxhealth=100,
-    maxstagger=60,
-    walk_speed=2.5,
-    dmg=8,
-    attack_speed=1.5,
-    bbox_size=(0.8, 1.8),
-    jump_power=6.0,
-)
-
-ENTITY_REGISTRY["Zombie"] = ZOMBIE_STATS
-
-
-# ---------------------------------------------------------------------------
-# Physics result — returned by the game loop, consumed by entity
-# ---------------------------------------------------------------------------
+ENTITY_REGISTRY: dict[str, EntityConstructor] = {}
 
 
 @dataclass
@@ -69,15 +27,9 @@ class PhysicsResult:
     y_collision: bool
 
 
-# ---------------------------------------------------------------------------
-# Entity — no world dependency
-# ---------------------------------------------------------------------------
-
-
-class Entity:
+class Entity(BoundingBoxed):
     # physics
     auto_jump: bool = True
-    bounding_box: BoundingBox
     velocity: pygame.Vector2
     on_ground: bool = False
     hit_ceiling: bool = False
@@ -99,30 +51,18 @@ class Entity:
     stagger_timer: float = 0.0
     attack_frameindex: int = 0
 
+    _walk_speed_modifier: float = 1.0
+    _attack_speed_modifier: float = 1.0
+
+    attack_bbox_size: pygame.Vector2
+
     def __init__(self, stats: EntityStats, x: float, y: float) -> None:
         self.stats = stats
 
-        self.maxhealth = stats.maxhealth
         self.health = float(stats.maxhealth)
 
-        self.maxstagger = stats.maxstagger
         self.stagger = float(stats.maxstagger)
 
-        self.walk_speed = stats.walk_speed
-        self.walkspeed = stats.walk_speed
-        self.dmg = stats.dmg
-        self.attackspeed = stats.attack_speed
-        self.default_attack_speed = stats.attack_speed
-        self.armor_value = stats.armor_value
-        self.passivregen = stats.passivregen
-        self.jump_power = stats.jump_power
-        self.gravity = stats.gravity
-        self.sprint_speed = stats.sprint_speed
-
-        self.bounding_box = BoundingBox(
-            position=pygame.Vector2(x, y),
-            size=pygame.Vector2(*stats.bbox_size),
-        )
         self.velocity = pygame.Vector2(0, 0)
 
         self.on_ground = False
@@ -143,39 +83,65 @@ class Entity:
         self.stagger_timer = 0.0
         self.attack_frameindex = 0
 
+        self.attack_bbox_size = pygame.Vector2(stats.attack_range, stats.bbox_size[1])
+
+        super().__init__(BoundingBox.new_from_tuples((x, y), stats.bbox_size))
+
+    @property
+    def damage(self) -> float:
+        return self.stats.dmg
+
+    @property
+    def maxhealth(self) -> int:
+        return self.stats.maxhealth
+
+    @property
+    def maxstagger(self) -> int:
+        return self.stats.maxstagger
+
+    @property
+    def jump_power(self) -> float:
+        return self.stats.jump_power
+
+    @property
+    def gravity(self) -> float:
+        return self.stats.gravity
+
+    @property
+    def armor_value(self) -> float:
+        return self.stats.armor_value
+
+    @property
+    def passivregen(self) -> float:
+        return self.stats.passivregen
+
+    @property
+    def attack_speed(self) -> float:
+        return self.stats.attack_speed * self._attack_speed_modifier
+
+    @property
+    def walk_speed(self) -> float:
+        return self.stats.walk_speed * self._walk_speed_modifier
+
+    @property
+    def knockback(self) -> float:
+        return self.stats.knockback
+
+    def attack_bbox(self) -> BoundingBox:
+        size = self.attack_bbox_size
+        offset = (
+            pygame.Vector2(0, 0)
+            if self.is_facing_right
+            else self.bounding_box.size - self.attack_bbox_size
+        )
+        position = self.position + offset
+        return BoundingBox(position, size)
+
+    @property
+    def is_facing_right(self) -> bool:
+        return self.velocity.x >= 0
+
     # --- position ---
-
-    @property
-    def position(self) -> pygame.Vector2:
-        return self.bounding_box.position
-
-    @position.setter
-    def position(self, value: pygame.Vector2) -> None:
-        self.bounding_box.position = value
-
-    @property
-    def x(self) -> float:
-        return self.bounding_box.position.x
-
-    @x.setter
-    def x(self, value: float) -> None:
-        self.bounding_box.position.x = value
-
-    @property
-    def y(self) -> float:
-        return self.bounding_box.position.y
-
-    @y.setter
-    def y(self, value: float) -> None:
-        self.bounding_box.position.y = value
-
-    @property
-    def xy(self) -> tuple[float, float]:
-        return (self.x, self.y)
-
-    @xy.setter
-    def xy(self, value: tuple[float, float]) -> None:
-        self.x, self.y = value
 
     # --- velocity ---
 
@@ -201,7 +167,7 @@ class Entity:
 
     @vel_xy.setter
     def vel_xy(self, value: tuple[float, float]) -> None:
-        self.velocity.x, self.velocity.y = value
+        self.vel_x, self.vel_y = value
 
     # --- physics (pure, no world) ---
 
@@ -266,12 +232,16 @@ class Entity:
 
     # --- damage ---
 
-    def take_damage(self, damage: float, stagger_damage: float) -> None:
+    def take_damage(
+        self, damage: float, stagger_damage: float, knockback: pygame.Vector2
+    ) -> None:
         if self.is_dead:
             return
 
         self.is_hit = True
         self.hit_timer = 150.0
+
+        self.velocity += knockback
 
         self.health -= damage * (1.0 - self.armor_value / 100.0)
         self.stagger -= stagger_damage
@@ -284,8 +254,8 @@ class Entity:
     def _update_stagger(self, dt: float) -> None:
         if self.stagger <= 0 and not self.is_staggered:
             self.is_staggered = True
-            self.walkspeed = 0.0
-            self.attackspeed = 0.0
+            self._walk_speed_modifier = 0.0
+            self._attack_speed_modifier = 0.0
             self.stagger_timer = 1000.0
 
         if self.is_staggered:
@@ -293,8 +263,8 @@ class Entity:
             if self.stagger_timer <= 0:
                 self.is_staggered = False
                 self.stagger = float(self.maxstagger)
-                self.walkspeed = self.walk_speed
-                self.attackspeed = self.default_attack_speed
+                self._walk_speed_modifier = 1.0
+                self._attack_speed_modifier = 1.0
 
     def _regen_stagger(self, dt: float) -> None:
         if not self.is_hit and not self.is_staggered:
@@ -303,15 +273,16 @@ class Entity:
 
     # --- combat ---
 
-    def attack(self) -> None:
+    def attack(self) -> bool:
         if self.attack_cooldown <= 0 and not self.is_staggered:
-            self.is_attacking = True
             self.attack_frameindex = 0
-            self.attack_cooldown = self.attackspeed
+            self.attack_cooldown = self.attack_speed
+            return True
+        return False
 
     def die(self) -> None:
         self.is_dead = True
-        self.walkspeed = 0.0
+        self._walk_speed_modifier = 0.0
         self.vel_x = 0.0
         self.is_attacking = False
 
@@ -365,115 +336,3 @@ class Entity:
         self.hit_timer = data["hit_timer"]
         self.stagger_timer = data["stagger_timer"]
         self.attack_frameindex = data["attack_frameindex"]
-
-
-# ---------------------------------------------------------------------------
-# Player
-# ---------------------------------------------------------------------------
-
-
-class Player(Entity):
-    def __init__(self, x: float, y: float) -> None:
-        super().__init__(PLAYER_STATS, x, y)
-
-    def parry(self) -> None:
-        self.is_parrying = True
-        self.walkspeed = self.walk_speed * 0.5
-
-    def stop_parry(self) -> None:
-        self.is_parrying = False
-        if not self.is_staggered:
-            self.walkspeed = self.walk_speed
-
-    def block(self) -> None:
-        self.is_blocking = True
-
-    def stop_block(self) -> None:
-        self.is_blocking = False
-
-    def swim_up(self) -> None:
-        if self.in_water:
-            self.vel_y += 1.0 / BLOCK_SPEED[Block.WATER.value]
-
-    def swim_down(self) -> None:
-        if self.in_water:
-            self.vel_y -= 1.0 / BLOCK_SPEED[Block.WATER.value]
-
-    def update_entity(self, dt: float, in_water: bool) -> None:
-        super().update_entity(dt, in_water)
-        self.regeneration(dt)
-
-
-# ---------------------------------------------------------------------------
-# Mob
-# ---------------------------------------------------------------------------
-
-
-class Mob(Entity):
-    detect_range_x: float = 200.0
-    detect_range_y: float = 120.0
-    chase_range_x: float = 350.0
-    chase_range_y: float = 200.0
-
-    def __init__(
-        self,
-        x: float,
-        y: float,
-        stats: EntityStats = ZOMBIE_STATS,
-    ) -> None:
-        super().__init__(stats, x, y)
-        self.has_aggro = False
-
-    @classmethod
-    def from_data(cls, data: dict) -> "Mob":
-        stats = ENTITY_REGISTRY.get(data["type"], ZOMBIE_STATS)
-        mob = cls(x=data["x"], y=data["y"], stats=stats)
-        mob.from_json(data)
-        return mob
-
-    def to_json(self) -> dict:
-        return super().to_json() | {
-            "type": "Zombie",  # subclasses override this
-            "has_aggro": self.has_aggro,
-        }
-
-    def from_json(self, data: dict) -> None:
-        super().from_json(data)
-        self.has_aggro = data.get("has_aggro", False)
-
-    def focus_player(self, player: Player) -> None:
-        dx = abs(player.x - self.x)
-        dy = abs(player.y - self.y)
-
-        if not self.has_aggro:
-            if dx < self.detect_range_x and dy < self.detect_range_y:
-                self.has_aggro = True
-        else:
-            if dx > self.chase_range_x or dy > self.chase_range_y:
-                self.has_aggro = False
-
-    def move_towards_player(self, player: Player) -> None:
-        if not self.has_aggro or self.is_staggered:
-            self.vel_x = 0.0
-            return
-
-        if player.x > self.x:
-            self.vel_x = self.walk_speed
-        elif player.x < self.x:
-            self.vel_x = -self.walk_speed
-        else:
-            self.vel_x = 0.0
-
-    def update_focus(self, player: Player, dt: float, in_water: bool) -> None:
-        self.focus_player(player)
-        self.move_towards_player(player)
-        super().update_entity(dt, in_water)
-
-    def draw(
-        self,
-        surface: pygame.Surface,
-        resolution: tuple[int, int],
-        player_x: float,
-        player_y: float,
-    ):
-        pass

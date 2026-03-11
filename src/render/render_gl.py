@@ -269,7 +269,7 @@ class ChunkRendererGL:
         max_chunk_x = self.chunk_manager.get_chunk_x(upper_right[0])
 
         to_update = range(min_chunk_x, max_chunk_x + 1)
-        self.chunk_manager.load_chunks_only(to_update)
+        self.chunk_manager.load_chunks(to_update)
         current_chunks = set(to_update)
 
         if self._should_update_lighting(current_chunks):
