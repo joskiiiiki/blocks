@@ -1,11 +1,11 @@
 # --- physics helper (lives in your game loop or a physics module) ---
-from src.blocks import BLOCK_ID_MASK, Block, is_solid
+from src.blocks import BLOCK_ID_MASK, is_solid
 from src.collision import sweep_collision
 from src.entity import Entity, PhysicsResult
-from src.world import World
+from src.interfaces import IWorld
 
 
-def physics_step(entity: Entity, world: World, dt: float) -> None:
+def physics_step(entity: Entity, world: IWorld, dt: float) -> None:
     next_pos = (
         entity.position + entity.velocity.normalize()
         if entity.velocity.length() > 0
@@ -29,7 +29,7 @@ def physics_step(entity: Entity, world: World, dt: float) -> None:
     )
 
 
-def get_touching_blocks(entity: Entity, world: World, inset: float = 0.1) -> set[int]:
+def get_touching_blocks(entity: Entity, world: IWorld, inset: float = 0.1) -> set[int]:
     bb = entity.bounding_box
     touching: set[int] = set()
     for px, py in [
@@ -39,7 +39,7 @@ def get_touching_blocks(entity: Entity, world: World, inset: float = 0.1) -> set
         (bb.right - inset, bb.top - inset),
         (bb.center.x, bb.center.y),
     ]:
-        block = world.chunk_manager.get_block(px, py)
+        block = world.get_block(px, py)
         if block is not None:
-            touching.add(BLOCK_ID_MASK & block)
+            touching.add(BLOCK_ID_MASK & block.value)
     return touching

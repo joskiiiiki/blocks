@@ -1,7 +1,6 @@
 import pygame
 
 from src.entity import Entity, EntityStats, Player
-from src.world import World
 
 
 class Mob(Entity):

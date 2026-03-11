@@ -4,6 +4,7 @@ import atexit
 import json
 import os
 import pathlib
+import random
 import signal
 import sys
 from collections.abc import Callable
@@ -13,13 +14,22 @@ import numpy as np
 import pygame
 
 from src.blocks import Block, is_solid
+from src.entity import ZOMBIE_STATS, Mob
 from src.interfaces import IWorld
+from src.physics import get_touching_blocks, physics_step
 from src.world.chunk import CHUNK_HEIGHT, CHUNK_WIDTH
 from src.world.chunk_manager import ChunkManager
 from src.world.gen_context import WorldGenContext
 
 MARKER = pygame.Surface((8, 8))
 MARKER.fill((255, 0, 0))
+
+# tune these
+MAX_MOBS = 20
+SPAWN_RANGE_X = 20  # world units from player
+SPAWN_RANGE_MIN = 8  # don't spawn too close
+SPAWN_ATTEMPTS = 10
+SPAWN_INTERVAL = 3.0  # seconds between spawn ticks
 
 
 class WorldData:
@@ -78,6 +88,7 @@ class World(IWorld):
     player_pos: tuple[float, float] = (0, 0)
     world_data: WorldData
     on_block_changed: Callable[[int, int], None] | None
+    _spawn_timer: float = 0.0
 
     def __init__(
         self,
@@ -197,3 +208,49 @@ class World(IWorld):
 
     def world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
         return self.chunk_manager._world_to_chunk(x, y)
+
+    def update_mobs(self, player, dt: float) -> None:
+        self._spawn_timer -= dt / 1000.0
+        if self._spawn_timer <= 0:
+            self._spawn_timer = SPAWN_INTERVAL
+            self._try_spawn(player)
+
+        for mob in self.chunk_manager.entities:
+            in_water = Block.WATER.value in get_touching_blocks(mob, self)
+            if isinstance(mob, Mob):
+                mob.update_focus(player, dt, in_water)
+            physics_step(mob, self, dt)
+
+    def _try_spawn(self, player) -> None:
+        if len(self.chunk_manager.entities) >= MAX_MOBS:
+            return
+
+        for _ in range(SPAWN_ATTEMPTS):
+            # pick x outside the minimum range but within spawn range
+            side = random.choice([-1, 1])
+            x = player.x + side * random.uniform(SPAWN_RANGE_MIN, SPAWN_RANGE_X)
+            chunk_x = int(x) // self.chunk_manager.width
+
+            # only spawn in loaded chunks
+            chunk = self.chunk_manager.get_chunk_from_cache(chunk_x)
+            if chunk is None:
+                continue
+
+            local_x = int(x) % self.chunk_manager.width
+
+            # find surface y
+            surface_y = None
+            for y in range(self.chunk_manager.height - 2, 0, -1):
+                if (
+                    chunk.blocks[local_x, y] != Block.AIR.value
+                    and chunk.blocks[local_x, y - 1] == Block.AIR.value
+                ):
+                    surface_y = y - 1
+                    break
+
+            if surface_y is None:
+                continue
+
+            mob = Mob(x=float(int(x)) + 0.5, y=float(surface_y), stats=ZOMBIE_STATS)
+            self.chunk_manager.add_entity(mob)
+            return  # one mob per tick

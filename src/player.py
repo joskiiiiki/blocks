@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from time import time
 from typing import Optional
 
 import pygame
 
 from src.assets import TILE_SIZE, get_animation, get_texture
-from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block, Item
+from src.blocks import BLOCK_SPEED, Block, Item
 from src.entity import Player as _PlayerBase
 from src.interfaces import IWorld
 from src.inventory import Hotbar, Inventory
@@ -19,12 +18,12 @@ TEST = pygame.Surface((32, 64))
 TEST.fill((255, 0, 0))
 
 PLAYER = get_texture("player")
-PLAYER_IDLE         = get_animation("idle")
-PLAYER_WALK         = get_animation("walk")
-PLAYER_RUN          = get_animation("run")
-PLAYER_JUMP         = get_animation("jump")
+PLAYER_IDLE = get_animation("idle")
+PLAYER_WALK = get_animation("walk")
+PLAYER_RUN = get_animation("run")
+PLAYER_JUMP = get_animation("jump")
 PLAYER_ATTACK_START = get_animation("attack_start")
-PLAYER_ATTACK_LOOP  = get_animation("attack_loop")
+PLAYER_ATTACK_LOOP = get_animation("attack_loop")
 
 PLAYER_SPRITE_HEIGHT = 80
 PLAYER_SPRITE_WIDTH = 80
@@ -51,6 +50,8 @@ class Player(_PlayerBase):
     slide_timer: float = 0.0
     ani_cycle: float = 0.0
     is_facing_right: bool = False
+
+    is_mining: bool = False
 
     def __init__(
         self,
@@ -135,9 +136,13 @@ class Player(_PlayerBase):
         )
 
         if mouse_right:
+            self.is_mining = False
             self.handle_right_click(i_world)
         elif mouse_left:
+            self.is_mining = True
             self.handle_left_click(delta_t, i_world)
+        else:
+            self.is_mining = False
 
     # --- swim uses BLOCK_SPEED (needs game imports, so defined here) ---
 
@@ -216,7 +221,7 @@ class Player(_PlayerBase):
 
         self.update_animation(delta_t)
         # entity system: timers, stagger, regen
-        super().update(delta_t, in_water)
+        super().update_entity(delta_t, in_water)
 
     def update_animation(self, dt: float) -> None:
         if abs(self.vel_x) > 0.01 and self.on_ground:
@@ -228,7 +233,7 @@ class Player(_PlayerBase):
         flipped = not self.is_facing_right
 
         # mining — attack_start plays once, then attack_loop cycles
-        if self.break_progress is not None:
+        if self.is_mining and self.break_progress is not None:
             elapsed = time() - self.break_progress[1]
             duration = self.break_progress[0]
             progress = min(elapsed / duration, 1.0)

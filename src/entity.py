@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 import pygame
 
-from src.blocks import BLOCK_ID_MASK, BLOCK_SPEED, Block
-from src.collision import BoundingBox, sweep_collision
+from src.blocks import BLOCK_SPEED, Block
+from src.collision import BoundingBox
+
+# ---------------------------------------------------------------------------
+# Stat blocks
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -31,13 +34,15 @@ PLAYER_STATS = EntityStats(
     dmg=10,
     attack_speed=1.0,
     bbox_size=(0.8, 1.8),
-    jump_power=6.0,
+    jump_power=12.0,
     armor_value=0.0,
     passivregen=5.0,
     sprint_speed=8.0,
 )
 
-MOB_STATS = EntityStats(
+ENTITY_REGISTRY: dict[str, "EntityStats"] = {}  # populated after stats are defined
+
+ZOMBIE_STATS = EntityStats(
     maxhealth=100,
     maxstagger=60,
     walk_speed=2.5,
@@ -46,6 +51,8 @@ MOB_STATS = EntityStats(
     bbox_size=(0.8, 1.8),
     jump_power=6.0,
 )
+
+ENTITY_REGISTRY["Zombie"] = ZOMBIE_STATS
 
 
 # ---------------------------------------------------------------------------
@@ -62,9 +69,14 @@ class PhysicsResult:
     y_collision: bool
 
 
+# ---------------------------------------------------------------------------
+# Entity — no world dependency
+# ---------------------------------------------------------------------------
+
+
 class Entity:
-    auto_jump: bool = True
     # physics
+    auto_jump: bool = True
     bounding_box: BoundingBox
     velocity: pygame.Vector2
     on_ground: bool = False
@@ -226,7 +238,7 @@ class Entity:
 
     # --- update (pure combat/timer logic only) ---
 
-    def update(self, dt: float, in_water: bool) -> None:
+    def update_entity(self, dt: float, in_water: bool) -> None:
         """
         Update timers, stagger, gravity, water drag.
         Physics (sweep collision) is handled externally — call apply_physics_result()
@@ -387,8 +399,8 @@ class Player(Entity):
         if self.in_water:
             self.vel_y -= 1.0 / BLOCK_SPEED[Block.WATER.value]
 
-    def update(self, dt: float, in_water: bool) -> None:
-        super().update(dt, in_water)
+    def update_entity(self, dt: float, in_water: bool) -> None:
+        super().update_entity(dt, in_water)
         self.regeneration(dt)
 
 
@@ -407,10 +419,27 @@ class Mob(Entity):
         self,
         x: float,
         y: float,
-        stats: EntityStats = MOB_STATS,
+        stats: EntityStats = ZOMBIE_STATS,
     ) -> None:
         super().__init__(stats, x, y)
         self.has_aggro = False
+
+    @classmethod
+    def from_data(cls, data: dict) -> "Mob":
+        stats = ENTITY_REGISTRY.get(data["type"], ZOMBIE_STATS)
+        mob = cls(x=data["x"], y=data["y"], stats=stats)
+        mob.from_json(data)
+        return mob
+
+    def to_json(self) -> dict:
+        return super().to_json() | {
+            "type": "Zombie",  # subclasses override this
+            "has_aggro": self.has_aggro,
+        }
+
+    def from_json(self, data: dict) -> None:
+        super().from_json(data)
+        self.has_aggro = data.get("has_aggro", False)
 
     def focus_player(self, player: Player) -> None:
         dx = abs(player.x - self.x)
@@ -438,4 +467,13 @@ class Mob(Entity):
     def update_focus(self, player: Player, dt: float, in_water: bool) -> None:
         self.focus_player(player)
         self.move_towards_player(player)
-        super().update(dt, in_water)
+        super().update_entity(dt, in_water)
+
+    def draw(
+        self,
+        surface: pygame.Surface,
+        resolution: tuple[int, int],
+        player_x: float,
+        player_y: float,
+    ):
+        pass

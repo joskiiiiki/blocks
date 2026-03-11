@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from enum import Enum
 from typing import TypedDict
 
@@ -12,6 +13,7 @@ from pyfastnoiselite.pyfastnoiselite import (  # ty:ignore[unresolved-import]
 )
 
 from src.blocks import BLOCK_ID_MASK, Block, BlockData, is_solid
+from src.entity import Entity
 from src.world.gen_context import WorldGenContext
 
 CHUNK_WIDTH = 32
@@ -62,12 +64,26 @@ class Chunk:
         chunk.set_data(data)
         return chunk
 
-    def to_data_json(self) -> str:
+    def to_data_json(self, entities: list[Entity]) -> str:
+        chunk_entities = [
+            e.to_json() | {"type": e.__class__.__name__}
+            for e in entities
+            if self._entity_belongs(e)
+        ]
         return json.dumps(
             {
                 "status": self.status.value,
+                "entities": chunk_entities,
             }
         )
+
+    def _entity_belongs(self, entity: Entity) -> bool:
+        """Check if entity's x position belongs to this chunk."""
+        entity_chunk_x = math.floor(entity.x) // self.width
+        return entity_chunk_x == self.chunk_x
+
+    def get_entity_data(self, data: dict) -> list[dict]:
+        return data.get("entities", [])
 
     def set_data(self, data: ChunkData):
         self.status = ChunkStatus(data["status"])

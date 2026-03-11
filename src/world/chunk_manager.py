@@ -9,6 +9,7 @@ from typing import Iterable, Optional
 import numpy as np
 
 from src.blocks import Block
+from src.entity import Entity, Mob
 from src.world.chunk import Chunk, ChunkStatus
 from src.world.utils import smooth_caves_with_neighbors, smooth_mask_ce
 
@@ -48,11 +49,12 @@ class ChunkManager:
         # Worker threads
         self._running = False
         self._generation_queue: queue.Queue[int] = queue.Queue()
-        self._save_queue: queue.Queue[tuple[int, Chunk]] = queue.Queue()
+        self._save_queue: queue.Queue[tuple[int, Chunk, list[Entity]]] = queue.Queue()
         self._decoration_pending: set[int] = set()  # Chunks waiting for decoration
 
         self._generation_thread: Optional[threading.Thread] = None
         self._save_thread: Optional[threading.Thread] = None
+        self.entities: list[Entity] = []
 
     def start(self):
         """Start background worker threads"""
@@ -127,8 +129,8 @@ class ChunkManager:
         """Background thread that saves chunks to disk"""
         while self._running:
             try:
-                chunk_x, chunk = self._save_queue.get(timeout=0.5)
-                self._write_chunk_to_disk(chunk_x, chunk)
+                chunk_x, chunk, entities = self._save_queue.get(timeout=0.5)
+                self._write_chunk_to_disk(chunk_x, chunk, entities)
                 self._save_queue.task_done()
             except queue.Empty:
                 continue
@@ -139,8 +141,8 @@ class ChunkManager:
         # Process remaining saves
         while not self._save_queue.empty():
             try:
-                chunk_x, chunk = self._save_queue.get_nowait()
-                self._write_chunk_to_disk(chunk_x, chunk)
+                chunk_x, chunk, entities = self._save_queue.get_nowait()
+                self._write_chunk_to_disk(chunk_x, chunk, entities)
                 self._save_queue.task_done()
             except Exception as e:
                 print(f"Error in final save: {e}")
@@ -361,20 +363,25 @@ class ChunkManager:
 
         # Unload chunks
         for chunk_x in to_unload:
-            self.unload_chunk(chunk_x)
+            self.unload_chunk(chunk_x, self.entities)
 
         # Load desired chunks
         for chunk_x in chunks_set:
             self.load_chunk(chunk_x)
 
-    def unload_chunk(self, chunk_x: int):
-        """Unload a chunk from cache, saving it first"""
+    def unload_chunk(self, chunk_x: int, entities: list[Entity]) -> None:
         with self._cache_lock:
             chunk = self._chunk_cache.pop(chunk_x, None)
             self._decoration_pending.discard(chunk_x)
 
         if chunk is not None:
-            self._queue_save(chunk_x, chunk)
+            # remove entities belonging to this chunk from global list
+            to_remove = [
+                e for e in entities if math.floor(e.x) // self.width == chunk_x
+            ]
+            for e in to_remove:
+                entities.remove(e)
+            self._queue_save(chunk_x, chunk, to_remove)
 
     def get_chunk_from_cache(self, chunk_x: int) -> Chunk | None:
         """Thread-safe cache access"""
@@ -453,16 +460,19 @@ class ChunkManager:
 
     # ==================== DISK I/O ====================
 
-    def _queue_save(self, chunk_x: int, chunk: Optional[Chunk] = None):
-        """Queue a chunk for saving"""
+    def _queue_save(
+        self,
+        chunk_x: int,
+        chunk: Chunk | None = None,
+        entities: list[Entity] | None = None,
+    ) -> None:
         if chunk is None:
             with self._cache_lock:
                 chunk = self._chunk_cache.get(chunk_x)
-
         if chunk is not None:
-            self._save_queue.put((chunk_x, chunk.copy()))
+            self._save_queue.put((chunk_x, chunk.copy(), list(entities or [])))
 
-    def _write_chunk_to_disk(self, chunk_x: int, chunk: Chunk):
+    def _write_chunk_to_disk(self, chunk_x: int, chunk: Chunk, entities: list[Entity]):
         """Write chunk to disk (called by save worker)"""
         if not self.world_dir:
             return
@@ -482,7 +492,7 @@ class ChunkManager:
 
         tmp_data = data_path.with_suffix(".tmp")
         with tmp_data.open("w") as f:
-            f.write(chunk.to_data_json())
+            f.write(chunk.to_data_json(entities))
         tmp_data.replace(data_path)
 
     def _load_from_disk(self, chunk_x: int) -> Chunk | None:
@@ -501,7 +511,11 @@ class ChunkManager:
             blocks = np.load(chunk_path, allow_pickle=False)
             with data_path.open() as f:
                 data = json.load(f)
-            return Chunk.from_data(chunk_x=chunk_x, blocks=blocks, data=data)
+            chunk = Chunk.from_data(chunk_x=chunk_x, blocks=blocks, data=data)
+            for edata in data.get("entities", []):
+                entity = Mob.from_data(edata)
+                self.entities.append(entity)
+            return chunk
         except Exception as e:
             print(f"Error loading chunk {chunk_x}: {e}")
             return None
@@ -525,3 +539,6 @@ class ChunkManager:
     def get_chunk_x(self, x: float) -> int:
         """Get chunk X coordinate from world X"""
         return int(x) // self.width
+
+    def add_entity(self, entity: Entity) -> None:
+        self.entities.append(entity)

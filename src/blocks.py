@@ -4,7 +4,6 @@ from enum import Enum
 from typing import TypeAlias
 
 import numpy as np
-import pygame
 
 from src import assets
 

@@ -1,26 +1,12 @@
-import math
-
 import pygame
 
 from src.assets import TILE_SIZE
-from src.entity import EntityStats
+from src.entity import ZOMBIE_STATS
 from src.mob import Mob
 from src.utils import world_to_screen
-from src.world import World
 
 ENEMY_SPRITE = pygame.Surface((32, 64))
 ENEMY_SPRITE.fill((255, 0, 0))
-
-ZOMBIE_STATS = EntityStats(
-    maxhealth=100,
-    maxstagger=60,
-    walk_speed=2.5,
-    dmg=8,
-    attack_speed=1.5,
-    armor_value=0.0,
-    jump_power=6.0,
-    bbox_size=(0.8, 1.8),
-)
 
 
 class Zombie(Mob):
@@ -30,9 +16,9 @@ class Zombie(Mob):
     def draw(
         self,
         surface: pygame.Surface,
+        resolution: tuple[int, int],
         player_x: float,
         player_y: float,
-        resolution: tuple[int, int],
     ) -> None:
         if self.is_dead:
             return

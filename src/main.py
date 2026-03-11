@@ -3,9 +3,8 @@ from pathlib import Path
 import moderngl
 import pygame
 
-from src import assets
 from src.blocks import Block
-from src.entities import Zombie
+from src.entity import Mob
 from src.physics import get_touching_blocks, physics_step
 from src.player import Player
 from src.render import ChunkRendererGL, PygameOverlay
@@ -66,8 +65,6 @@ class Game:
         self.running = True
         dt = 1 / self.framerate
 
-        enemy = Zombie(0, 280)
-
         while self.running:
             # self._screen.fill(assets.COLOR_SKY)
             self.overlay.clear()
@@ -83,26 +80,27 @@ class Game:
             keys = pygame.key.get_pressed()
             if keys[pygame.K_ESCAPE]:
                 self.running = False
-
+            # replace the player update + enemy block with:
             in_water = Block.WATER.value in get_touching_blocks(self.player, self.world)
             self.player.update_player(dt, self.resolution, in_water, self.world)
             physics_step(self.player, self.world, dt)
 
-            in_water = Block.WATER.value in get_touching_blocks(enemy, self.world)
-
-            enemy.update_focus(self.player, dt)
-            enemy.update(dt, in_water)
+            self.world.update_mobs(self.player, dt)
 
             self.world.player_pos = self.player.xy
-
             self.world.update_chunk_cache()
 
             self.chunk_render.render(self.player.xy, self.resolution)
-
             self.player.draw(self.overlay.surface, self.resolution)
 
-            enemy.draw(self.overlay.surface, *self.player.xy, self.resolution)
-
+            for mob in self.world.chunk_manager.entities:
+                if isinstance(mob, Mob):
+                    print(mob.bounding_box.position)
+                    mob.draw(
+                        self.overlay.surface,
+                        self.resolution,
+                        *self.player.xy,
+                    )
             fps = self.clock.get_fps()
             fps_text = self.font.render(f"FPS: {fps:.1f}", True, (255, 255, 255))
             self.overlay.blit(fps_text, (10, 10))
