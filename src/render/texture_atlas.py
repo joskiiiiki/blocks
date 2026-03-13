@@ -58,9 +58,9 @@ class TextureAtlas:
             x = col * self.tile_size
             y = row * self.tile_size
 
-            texture_flipped = pygame.transform.flip(texture, False, True)
+            # texture_flipped = pygame.transform.flip(texture, False, True)
 
-            atlas_surface.blit(texture_flipped, (x, y))
+            atlas_surface.blit(texture, (x, y))
 
             # normalize coordinates to uv [0, 1]
             u = x / atlas_width

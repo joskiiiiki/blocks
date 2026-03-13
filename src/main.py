@@ -148,7 +148,10 @@ class Game:
     def on_block_changed(self, world_x: int, world_y: int):
         chunk_x = self.world.chunk_manager.get_chunk_x(world_x)
 
+
         self.lighting_manager.mark_chunks_dirty([chunk_x - 1, chunk_x, chunk_x + 1])
+        self.chunk_render.mark_chunk_dirty(chunk_x)
+
 
         # Mark renderer dirty
         self.chunk_render.mark_lighting_dirty()
