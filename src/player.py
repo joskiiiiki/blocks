@@ -11,7 +11,7 @@ from src.blocks import BLOCK_SPEED, Block, Item
 from src.entity.entity import Entity
 from src.entity.stats import PLAYER_STATS
 from src.interfaces import IWorld
-from src.inventory import Hotbar, Inventory
+from src.inventory import Hotbar, Inventory, Stack
 from src.utils import screen_to_world, to_block, world_to_screen
 
 # --- sprites ---
@@ -74,6 +74,7 @@ class Player(Entity):
 
         self.inventory.add_stack((Item.TORCH, 100))
         self.inventory.add_stack((Item.COPPER_TORCH, 100))
+        self.inventory.add_stack((Item.IRON_SWORD, 100))
 
         self.sliding = False
         self.slide_timer = 0.0
@@ -82,6 +83,12 @@ class Player(Entity):
         self.cursor_position_world = (0.0, 0.0)
 
     # --- input ---
+    def held_stack(self) -> Stack | None: 
+        slot = self.hotbar.selected_slot
+        stack = self.inventory.get_slot(slot)
+        if stack is None:
+            return
+        return stack
 
     def handle_mousewheel(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEWHEEL:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import src.inventory
 
 from dataclasses import dataclass
 from typing import Protocol
@@ -6,7 +7,8 @@ from typing import Protocol
 import pygame
 
 from src.bboxed import BoundingBoxed
-from src.blocks import BLOCK_SPEED, Block
+
+from src.blocks import BLOCK_SPEED, Block, damage_of_item
 from src.collision import BoundingBox
 from src.entity.stats import EntityStats
 
@@ -87,8 +89,14 @@ class Entity(BoundingBoxed):
 
         super().__init__(BoundingBox.new_from_tuples((x, y), stats.bbox_size))
 
+    def held_stack(self) -> None | src.inventory.Stack:
+        return None
+
     @property
     def damage(self) -> float:
+        stack = self.held_stack()
+        if stack:
+            return damage_of_item(stack[0]) * self.stats.dmg
         return self.stats.dmg
 
     @property

@@ -138,6 +138,7 @@ class Item(Enum):
     PLANKS = 7
     TORCH = 8
     COPPER_TORCH = 9
+    IRON_SWORD = 10
 
     UNKNOWN = 255
 
@@ -188,6 +189,14 @@ ITEM_TEXTURES = {
     Item.PLANKS.value: "plank",
     Item.COPPER_TORCH.value: "copper_torch",
     Item.UNKNOWN.value: "unknown",
+    Item.IRON_SWORD.value: "unknown",
+}
+
+def damage_of_item(item: Item) -> float:
+    return ITEM_DAMAGE_MULTIPLIER.get(item.value, 1)
+
+ITEM_DAMAGE_MULTIPLIER: dict[int, float] = {
+    Item.IRON_SWORD.value: 7.0
 }
 
 BLOCK_SPEED = {
