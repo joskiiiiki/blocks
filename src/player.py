@@ -83,7 +83,7 @@ class Player(Entity):
         self.cursor_position_world = (0.0, 0.0)
 
     # --- input ---
-    def held_stack(self) -> Stack | None: 
+    def held_stack(self) -> Stack | None:
         slot = self.hotbar.selected_slot
         stack = self.inventory.get_slot(slot)
         if stack is None:
@@ -245,6 +245,7 @@ class Player(Entity):
         resolution: tuple[int, int],
         in_water: bool,
         i_world: IWorld,
+        block_interactions: bool = False,
     ) -> None:
         if self.hit_flash_timer > 0:
             print(self.hit_flash_timer, delta_t)
@@ -253,7 +254,8 @@ class Player(Entity):
         if self.is_dead:
             return
 
-        self.handle_input(resolution, delta_t, i_world)
+        if not block_interactions:
+            self.handle_input(resolution, delta_t, i_world)
 
         # slide decay
         if self.sliding:

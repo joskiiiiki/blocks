@@ -7,6 +7,7 @@ from src.blocks import Block
 from src.combat import process_combat
 from src.entity.mob import Mob
 from src.entity.zombie import Zombie
+from src.inventory_renderer import InventoryRenderer
 from src.physics import get_touching_blocks, physics_step
 from src.player import HIT_FLASH_DURATION, Player
 from src.render import ChunkRendererGL, PygameOverlay
@@ -29,10 +30,16 @@ class Game:
     player: Player
     clock: pygame.time.Clock
     running: bool = False
-    font: pygame.Font
+    font: pygame.font.Font
     # lighting_manager: LightingManagerGL
     ctx: moderngl.Context
     damage_overlay: DamageOverlay
+    inventory_renderer: InventoryRenderer
+    inventory_open = False
+
+    @property
+    def world_interactions_blocked(self):
+        return self.inventory_open
 
     def __init__(self, world_path: Path):
         pygame.init()
@@ -65,6 +72,7 @@ class Game:
         self.font = pygame.Font(None, FONT_SIZE)
 
         self.damage_overlay = DamageOverlay(self.ctx, HIT_FLASH_DURATION)
+        self.inventory_renderer = InventoryRenderer()
 
     def main(self):
         self.world.update_chunk_cache()
@@ -82,13 +90,28 @@ class Game:
                     self.player.handle_mousewheel(event)
                 if event.type == pygame.VIDEORESIZE:
                     self.on_resize(event.size)
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
+                    self.inventory_open = not self.inventory_open
+                    if not self.inventory_open:
+                        self.inventory_renderer.close(self.player.inventory.slots)
+
+            if self.inventory_open:
+                self.inventory_renderer.handle_event(
+                    event, self.player.inventory.slots, self.resolution
+                )
 
             keys = pygame.key.get_pressed()
             if keys[pygame.K_ESCAPE]:
                 self.running = False
             # replace the player update + enemy block with:
             in_water = Block.WATER.value in get_touching_blocks(self.player, self.world)
-            self.player.update_player(dt, self.resolution, in_water, self.world)
+            self.player.update_player(
+                dt,
+                self.resolution,
+                in_water,
+                self.world,
+                self.world_interactions_blocked,
+            )
             physics_step(self.player, self.world, dt)
 
             self.world.update_mobs(self.player, dt)
@@ -130,6 +153,12 @@ class Game:
                 )
                 self.overlay.blit(chunk_text, (10, 10 + FONT_SIZE * 2.2))
 
+            if self.inventory_open:
+                self.inventory_renderer.draw(
+                    self.overlay.surface,
+                    self.player.inventory.slots,
+                    self.resolution,
+                )
             self.overlay.render()
 
             self.damage_overlay.render(
@@ -148,10 +177,8 @@ class Game:
     def on_block_changed(self, world_x: int, world_y: int):
         chunk_x = self.world.chunk_manager.get_chunk_x(world_x)
 
-
         self.lighting_manager.mark_chunks_dirty([chunk_x - 1, chunk_x, chunk_x + 1])
         self.chunk_render.mark_chunk_dirty(chunk_x)
-
 
         # Mark renderer dirty
         self.chunk_render.mark_lighting_dirty()
