@@ -15,12 +15,13 @@ def process_combat(player: Player, mobs: Iterable[Mob], dt: float) -> CombatResu
     player_damaged = False
 
     for mob in mobs:
-        if mob.attack() and aabb_overlap(mob.attack_bbox(), player.bounding_box):
-            knockback = (player.position - mob.position).normalize() * mob.knockback
-            player.take_damage(mob.damage, mob.damage * 0.5, knockback)
-            player_damaged = True
+        # if mob.attack() and aabb_overlap(mob.attack_bbox(), player.bounding_box):
+        #     knockback = (player.position - mob.position).normalize() * mob.knockback
+        #     player.take_damage(mob.damage, mob.damage * 0.5, knockback)
+        #     player_damaged = True
 
         if player.attack() and aabb_overlap(player.attack_bbox(), mob.bounding_box):
+            print("ATTACK")
             knockback = (mob.position - player.position).normalize() * player.knockback
             mob.take_damage(player.damage, player.damage * 0.5, knockback)
 

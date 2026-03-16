@@ -55,6 +55,7 @@ void main() {
     // atlas lookup via uniform array
     vec2 atlas_offset = atlas_offsets[int(block_id)];
     vec2 tile_frac = vec2(fract(local_x), 1.0 - fract(world_pos.y));
+    tile_frac.y = clamp(tile_frac.y, 0.001, 0.999);
     vec4 tex_color = texture(texture_atlas, atlas_offset + tile_frac * atlas_tile_size);
 
     if (tex_color.a < 0.01) {
