@@ -6,28 +6,23 @@ from src.interfaces import IWorld
 
 
 def physics_step(entity: Entity, world: IWorld, dt: float) -> None:
-    next_pos = (
-        entity.position + entity.velocity.normalize()
-        if entity.velocity.length() > 0
-        else entity.position
-    )
-
     position, _, on_ground, hit_ceiling, x_col, y_col = sweep_collision(
         bounding_box=entity.bounding_box,
         velocity=entity.velocity * dt,
         is_solid=world.is_solid,
     )
 
-    # auto-jump over 1-block steps
-    if entity.auto_jump and x_col and on_ground:
-        block = world.get_block(next_pos.x, next_pos.y + 1)
-        if block and is_solid(block.value & BLOCK_ID_MASK):
-            entity.jump()
-
     entity.apply_physics_result(
-        PhysicsResult(position, on_ground, hit_ceiling, x_col, y_col)
+        dt, PhysicsResult(position, on_ground, hit_ceiling, x_col, y_col)
     )
 
+    if entity.auto_jump and x_col and on_ground and entity._auto_jump_cooldown <= 0:
+        check_x = entity.bounding_box.right + 0.1 if entity.vel_x > 0 else entity.bounding_box.left - 0.1
+        check_y = entity.bounding_box.bottom + 1.0
+        block = world.get_block(check_x, check_y)
+        if block and is_solid(block.value & BLOCK_ID_MASK):
+            entity._auto_jump_cooldown = 0.3
+            entity.jump()
 
 def get_touching_blocks(entity: Entity, world: IWorld, inset: float = 0.1) -> set[int]:
     bb = entity.bounding_box

@@ -161,7 +161,7 @@ class Player(Entity):
         # --- swim uses BLOCK_SPEED (needs game imports, so defined here) ---
 
     def take_damage(
-        self, damage: float, stagger_damage: float, knockback: pygame.Vector2
+        self, damage: float, stagger_damage: float, knockback: pygame.Vector2 | None = None
     ) -> None:
         super().take_damage(damage, stagger_damage, knockback)
         self.hit_flash_timer = HIT_FLASH_DURATION

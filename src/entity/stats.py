@@ -9,7 +9,7 @@ class EntityStats:
     dmg: int
     attack_speed: float
     bbox_size: tuple[float, float]
-    jump_power: float = 6.0
+    jump_power: float = 1
     gravity: float = -9.81
     armor_value: float = 0.0
     passivregen: float = 0.0
@@ -25,7 +25,7 @@ PLAYER_STATS = EntityStats(
     dmg=10,
     attack_speed=1.0,
     bbox_size=(0.8, 1.8),
-    jump_power=12.0,
+    jump_power=6.0,
     armor_value=0.0,
     passivregen=5.0,
     sprint_speed=8.0,

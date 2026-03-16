@@ -1,16 +1,16 @@
 from __future__ import annotations
-import src.inventory
 
+import math
 from dataclasses import dataclass
 from typing import Protocol
 
 import pygame
 
+import src.inventory
 from src.bboxed import BoundingBoxed
-
 from src.blocks import BLOCK_SPEED, Block, damage_of_item
 from src.collision import BoundingBox
-from src.entity.stats import EntityStats
+from src.entity.stats import PLAYER_STATS, EntityStats
 
 
 class EntityConstructor(Protocol):
@@ -18,6 +18,18 @@ class EntityConstructor(Protocol):
 
 
 ENTITY_REGISTRY: dict[str, EntityConstructor] = {}
+
+FALL_DAMAGE_VELOCITY_TRESH = math.sqrt(
+    2 * 9.81 * 15
+)  # Velocity after falling 10 Blocks
+player_death_fall_distance = 40
+FALL_DAMAGE_MULTIPLIER = (
+    PLAYER_STATS.maxhealth
+    / (
+        math.sqrt(2 * abs(PLAYER_STATS.gravity) * player_death_fall_distance)
+        - FALL_DAMAGE_VELOCITY_TRESH
+    )
+)  # Calculate Multiplier so that player dies after 40 blocks (assuming constant acceleration)
 
 
 @dataclass
@@ -55,6 +67,7 @@ class Entity(BoundingBoxed):
 
     _walk_speed_modifier: float = 1.0
     _attack_speed_modifier: float = 1.0
+    _auto_jump_cooldown: float = 0.0
 
     attack_bbox_size: pygame.Vector2
 
@@ -182,20 +195,32 @@ class Entity(BoundingBoxed):
     def apply_gravity(self, dt: float, multiplier: float = 1.0) -> None:
         self.vel_y += self.gravity * dt * multiplier
 
-    def apply_physics_result(self, result: PhysicsResult) -> None:
-        """Consume a PhysicsResult produced by the game loop's sweep_collision call."""
+    def apply_fall_damage(self, velocity: float):
+        # print("Fall Damage", velocity)
+        if velocity <= FALL_DAMAGE_VELOCITY_TRESH:
+            return
+
+        damage = (velocity - FALL_DAMAGE_VELOCITY_TRESH) * FALL_DAMAGE_MULTIPLIER
+
+        self.take_damage(damage, 0, None)
+
+    def apply_physics_result(self, dt: float, result: PhysicsResult) -> None:
+        if result.on_ground and not self.on_ground and self.vel_y < 0:
+            self.apply_fall_damage(abs(self.vel_y))
+
         self.position = result.position
         self.on_ground = result.on_ground
         self.hit_ceiling = result.hit_ceiling
         self.x_collision = result.x_collision
         self.y_collision = result.y_collision
 
-        if self.on_ground and self.vel_y < 0:
+        if result.on_ground and self.vel_y < 0:
             self.vel_y = 0.0
         elif self.hit_ceiling and self.vel_y > 0:
             self.vel_y = 0.0
 
-    # --- movement ---
+        if self._auto_jump_cooldown > 0:
+            self._auto_jump_cooldown -= dt  # --- movement ---
 
     def jump(self) -> None:
         if self.on_ground:
@@ -241,7 +266,10 @@ class Entity(BoundingBoxed):
     # --- damage ---
 
     def take_damage(
-        self, damage: float, stagger_damage: float, knockback: pygame.Vector2
+        self,
+        damage: float,
+        stagger_damage: float,
+        knockback: pygame.Vector2 | None = None,
     ) -> None:
         if self.is_dead:
             return
@@ -249,7 +277,8 @@ class Entity(BoundingBoxed):
         self.is_hit = True
         self.hit_timer = 150.0
 
-        self.velocity += knockback
+        if knockback is not None:
+            self.velocity += knockback
 
         self.health -= damage * (1.0 - self.armor_value / 100.0)
         self.stagger -= stagger_damage

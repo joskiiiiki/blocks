@@ -186,18 +186,18 @@ ITEM_TEXTURES = {
     Item.LOG.value: "log",
     Item.LEAVES.value: "leaves",
     Item.TORCH.value: "torch",
-    Item.PLANKS.value: "plank",
+    Item.PLANKS.value: "planks",
     Item.COPPER_TORCH.value: "copper_torch",
     Item.UNKNOWN.value: "unknown",
     Item.IRON_SWORD.value: "unknown",
 }
 
+
 def damage_of_item(item: Item) -> float:
     return ITEM_DAMAGE_MULTIPLIER.get(item.value, 1)
 
-ITEM_DAMAGE_MULTIPLIER: dict[int, float] = {
-    Item.IRON_SWORD.value: 7.0
-}
+
+ITEM_DAMAGE_MULTIPLIER: dict[int, float] = {Item.IRON_SWORD.value: 7.0}
 
 BLOCK_SPEED = {
     Block.WATER.value: 0.8,

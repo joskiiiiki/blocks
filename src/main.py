@@ -10,6 +10,7 @@ from src.entity.zombie import Zombie
 from src.inventory_renderer import InventoryRenderer
 from src.physics import get_touching_blocks, physics_step
 from src.player import HIT_FLASH_DURATION, Player
+from src.recipes import craft
 from src.render import ChunkRendererGL, PygameOverlay
 from src.render.damage import DamageOverlay
 from src.render.lighting import LightingManagerGL
@@ -72,7 +73,7 @@ class Game:
         self.font = pygame.Font(None, FONT_SIZE)
 
         self.damage_overlay = DamageOverlay(self.ctx, HIT_FLASH_DURATION)
-        self.inventory_renderer = InventoryRenderer()
+        self.inventory_renderer = InventoryRenderer(recipe=craft)
 
     def main(self):
         self.world.update_chunk_cache()
@@ -100,9 +101,6 @@ class Game:
                     event, self.player.inventory.slots, self.resolution
                 )
 
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_ESCAPE]:
-                self.running = False
             # replace the player update + enemy block with:
             in_water = Block.WATER.value in get_touching_blocks(self.player, self.world)
             self.player.update_player(
