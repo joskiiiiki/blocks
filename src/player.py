@@ -110,9 +110,11 @@ class Player(Entity):
         if keys[pygame.K_a]:
             self.is_facing_right = False
             self.vel_x = -speed
+            self._fire("walking")
         if keys[pygame.K_d]:
             self.is_facing_right = True
             self.vel_x = speed
+            self._fire("walking")
 
         # jump
         if keys[pygame.K_SPACE] and self.on_ground:

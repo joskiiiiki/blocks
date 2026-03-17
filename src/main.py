@@ -1,3 +1,4 @@
+from src.sounds import SoundManager
 from pathlib import Path
 
 import moderngl
@@ -69,6 +70,9 @@ class Game:
             y=265,
             delta_t=1 / self.framerate,
         )
+        self.sound_manager = SoundManager()
+        self.player.on("damage", lambda: self.sound_manager.play("player_damage"))
+        self.player.on("walking", lambda: self.sound_manager.play("walk"))
         self.clock = pygame.time.Clock()
         self.font = pygame.Font(None, FONT_SIZE)
 
