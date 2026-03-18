@@ -110,11 +110,9 @@ class Player(Entity):
         if keys[pygame.K_a]:
             self.is_facing_right = False
             self.vel_x = -speed
-            self._fire("walking")
         if keys[pygame.K_d]:
             self.is_facing_right = True
             self.vel_x = speed
-            self._fire("walking")
 
         # jump
         if keys[pygame.K_SPACE] and self.on_ground:
@@ -163,7 +161,10 @@ class Player(Entity):
         # --- swim uses BLOCK_SPEED (needs game imports, so defined here) ---
 
     def take_damage(
-        self, damage: float, stagger_damage: float, knockback: pygame.Vector2 | None = None
+        self,
+        damage: float,
+        stagger_damage: float,
+        knockback: pygame.Vector2 | None = None,
     ) -> None:
         super().take_damage(damage, stagger_damage, knockback)
         self.hit_flash_timer = HIT_FLASH_DURATION
@@ -268,6 +269,7 @@ class Player(Entity):
 
         self.update_animation(delta_t)
         # entity system: timers, stagger, regen
+
         super().update_entity(delta_t, in_water)
 
     def update_animation(self, dt: float) -> None:

@@ -8,10 +8,10 @@ from src.entity.stats import ZOMBIE_STATS, EntityStats
 
 
 class Mob(Entity):
-    detect_range_x: float = 200.0
-    detect_range_y: float = 120.0
-    chase_range_x: float = 350.0
-    chase_range_y: float = 200.0
+    detect_range_x: float = 20.0
+    detect_range_y: float = 15.0
+    chase_range_x: float = 30.0
+    chase_range_y: float = 20.0
 
     attack_bbox_grow = pygame.Vector2(3.0, 0.5)
 
@@ -62,18 +62,17 @@ class Mob(Entity):
 
         dx = pos[0] - self.bounding_box.center.x
         dy = pos[1] - self.bounding_box.center.y
-        if abs(dx) + abs(dy) > 1.0:
-            self.vel_x = (
-                self.walk_speed if dx > 0 else -self.walk_speed if dx < 0 else 0.0
-            )
 
-            if self.in_water:
-                if self.x_collision or dy > 0:
-                    self.swim_up()
-                else:
-                    self.swim_down()
-        else:
+        if abs(dx) < 0.5:
             self.vel_x = 0.0
+        else:
+            self.vel_x = self.walk_speed if dx > 0 else -self.walk_speed
+
+        if self.in_water:
+            if self.x_collision or dy > 0:
+                self.swim_up()
+            else:
+                self.swim_down()
 
     def update_focus(self, pos: tuple[float, float], dt: float, in_water: bool) -> None:
         self.focus_player(pos)

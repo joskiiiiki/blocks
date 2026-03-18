@@ -1,4 +1,3 @@
-from src.sounds import SoundManager
 from pathlib import Path
 
 import moderngl
@@ -15,7 +14,9 @@ from src.recipes import craft
 from src.render import ChunkRendererGL, PygameOverlay
 from src.render.damage import DamageOverlay
 from src.render.lighting import LightingManagerGL
+from src.sounds import SoundManager
 from src.world import World, world_path
+from src.world.world import _setup_mob_sounds
 
 FONT_SIZE = 24
 
@@ -71,18 +72,32 @@ class Game:
             delta_t=1 / self.framerate,
         )
         self.sound_manager = SoundManager()
-        self.player.on("damage", lambda: self.sound_manager.play("player_damage"))
-        self.player.on("walking", lambda: self.sound_manager.play("walk"))
+        self.player.on("damage", lambda *_: self.sound_manager.play("player_damage"))
+        self.player.on("start_walking", lambda *_: self.sound_manager.play_walk(True))
+        self.player.on("stop_walking", lambda *_: self.sound_manager.play_walk(False))
+        self.world.on(
+            "block_destroyed",
+            lambda *_: self.sound_manager.play_non_overlapping("break_single"),
+        )
         self.clock = pygame.time.Clock()
         self.font = pygame.Font(None, FONT_SIZE)
 
         self.damage_overlay = DamageOverlay(self.ctx, HIT_FLASH_DURATION)
         self.inventory_renderer = InventoryRenderer(recipe=craft)
 
+        self.world.chunk_manager.on(
+            "entity_added",
+            lambda entity, *_: _setup_mob_sounds(
+                entity, self.sound_manager, self.player
+            ),
+        )
+
     def main(self):
         self.world.update_chunk_cache()
         self.running = True
         dt = 1 / self.framerate
+
+        self.sound_manager.play_music()
 
         while self.running:
             # self._screen.fill(assets.COLOR_SKY)
@@ -116,7 +131,7 @@ class Game:
             )
             physics_step(self.player, self.world, dt)
 
-            self.world.update_mobs(self.player, dt)
+            self.world.update_mobs(self.player, self.sound_manager, dt)
 
             mobs = filter(
                 lambda e: isinstance(e, Mob), self.world.chunk_manager.entities

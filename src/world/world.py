@@ -7,18 +7,20 @@ import pathlib
 import random
 import signal
 import sys
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import pygame
 
 from src.blocks import Block, is_solid
+from src.emitter import Emitter
 from src.entity.mob import Mob
 from src.entity.zombie import Zombie
-from src.interfaces import IWorld
+from src.interfaces import IPlayer, IWorld
 from src.physics import get_touching_blocks, physics_step
 from src.player import Player
+from src.sounds import SoundManager
 from src.world.chunk import CHUNK_HEIGHT, CHUNK_WIDTH
 from src.world.chunk_manager import ChunkManager
 from src.world.gen_context import WorldGenContext
@@ -32,6 +34,12 @@ SPAWN_RANGE_X = 20  # world units from player
 SPAWN_RANGE_MIN = 8  # don't spawn too close
 SPAWN_ATTEMPTS = 10
 SPAWN_INTERVAL = 3.0  # seconds between spawn ticks
+
+
+def _setup_mob_sounds(mob: "Mob", sound_manager: SoundManager, player: Player) -> None:
+    mob.on(
+        "damage", lambda *_: sound_manager.play_at("zombie_damage", mob.xy, player.xy)
+    )
 
 
 class WorldData:
@@ -83,7 +91,7 @@ class WorldData:
         }
 
 
-class World(IWorld):
+class World(IWorld, Emitter):
     chunk_manager: ChunkManager
     world_path: pathlib.Path
     lock_path: pathlib.Path
@@ -136,6 +144,8 @@ class World(IWorld):
         )
 
         self.chunk_manager.start()
+
+        Emitter.__init__(self)
 
     def release(self):
         if not self.lock_path.exists():
@@ -195,12 +205,20 @@ class World(IWorld):
     def set_block(self, x: float, y: float, block: Block) -> bool:
         if self.on_block_changed is not None:
             self.on_block_changed(int(x), int(y))
-        return self.chunk_manager.set_block(x, y, block.value)
+        was_set = self.chunk_manager.set_block(x, y, block.value)
+
+        if was_set:
+            self.emit("block_set", x, y, block)
+        return was_set
 
     def destroy_block(self, x: int, y: int) -> Block | None:
         if self.on_block_changed is not None:
             self.on_block_changed(x, y)
-        return Block(self.chunk_manager.destroy_block(x, y))
+
+        block = Block(self.chunk_manager.destroy_block(x, y))
+        if block is not None:
+            self.emit("block_destroyed", x, y, block)
+        return block
 
     def is_solid(self, x: float, y: float) -> bool:
         block = self.chunk_manager.get_block(x, y)
@@ -211,7 +229,9 @@ class World(IWorld):
     def world_to_chunk(self, x: float, y: float) -> tuple[int, float, float] | None:
         return self.chunk_manager._world_to_chunk(x, y)
 
-    def update_mobs(self, player: Player, dt: float) -> None:
+    def update_mobs(
+        self, player: Player, sound_manager: SoundManager, dt: float
+    ) -> None:
         self.chunk_manager.entities = [
             e for e in self.chunk_manager.entities if not e.is_dead
         ]  # filter out dead entities
@@ -225,6 +245,8 @@ class World(IWorld):
             if isinstance(mob, Mob):
                 mob.update_focus(player.xy, dt, in_water)
             physics_step(mob, self, dt)
+
+            sound_manager.update_mob_walk(mob, player.xy)
 
     def _try_spawn(self, player) -> None:
         if len(self.chunk_manager.entities) >= MAX_MOBS:

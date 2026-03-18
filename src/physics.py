@@ -16,13 +16,27 @@ def physics_step(entity: Entity, world: IWorld, dt: float) -> None:
         dt, PhysicsResult(position, on_ground, hit_ceiling, x_col, y_col)
     )
 
+    # TODO: Handle this somewhere outside physics. needs to be handled after physics though
+
     if entity.auto_jump and x_col and on_ground and entity._auto_jump_cooldown <= 0:
-        check_x = entity.bounding_box.right + 0.1 if entity.vel_x > 0 else entity.bounding_box.left - 0.1
-        check_y = entity.bounding_box.bottom + 1.0
-        block = world.get_block(check_x, check_y)
-        if block and is_solid(block.value & BLOCK_ID_MASK):
+        check_x = (
+            entity.bounding_box.right + 0.1
+            if entity.vel_x > 0
+            else entity.bounding_box.left - 0.1
+        )
+        # block at foot level causing the collision
+        foot_block = world.get_block(check_x, entity.bounding_box.bottom + 0.1)
+        # block above that (where entity would land)
+        above_block = world.get_block(check_x, entity.bounding_box.bottom + 1.1)
+
+        if (
+            foot_block
+            and is_solid(foot_block.value & BLOCK_ID_MASK)
+            and (above_block is None or not is_solid(above_block.value & BLOCK_ID_MASK))
+        ):
             entity._auto_jump_cooldown = 0.3
             entity.jump()
+
 
 def get_touching_blocks(entity: Entity, world: IWorld, inset: float = 0.1) -> set[int]:
     bb = entity.bounding_box

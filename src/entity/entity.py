@@ -1,7 +1,7 @@
 from __future__ import annotations
-from collections.abc import Callable
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,10 +11,9 @@ import src.inventory
 from src.bboxed import BoundingBoxed
 from src.blocks import BLOCK_SPEED, Block, damage_of_item
 from src.collision import BoundingBox
+from src.emitter import Emitter
 from src.entity.stats import PLAYER_STATS, EntityStats
 
-
-type EventCallback = Callable[[], None]
 
 class EntityConstructor(Protocol):
     def __call__(self, x: float, y: float) -> Entity: ...
@@ -44,7 +43,7 @@ class PhysicsResult:
     y_collision: bool
 
 
-class Entity(BoundingBoxed):
+class Entity(BoundingBoxed, Emitter):
     # physics
     auto_jump: bool = True
     velocity: pygame.Vector2
@@ -74,12 +73,6 @@ class Entity(BoundingBoxed):
 
     attack_bbox_size: pygame.Vector2
 
-    _listeners: dict[str, list[EventCallback]] = {
-        "damage": [],
-        "death": [],
-        "attack": []
-    }
-
     def __init__(self, stats: EntityStats, x: float, y: float) -> None:
         self.stats = stats
 
@@ -106,23 +99,24 @@ class Entity(BoundingBoxed):
         self.hit_timer = 0.0
         self.stagger_timer = 0.0
         self.attack_frameindex = 0
+        self.walking = False
 
         self.attack_bbox_size = pygame.Vector2(stats.attack_range, stats.bbox_size[1])
 
-        super().__init__(BoundingBox.new_from_tuples((x, y), stats.bbox_size))
+        BoundingBoxed.__init__(
+            self, BoundingBox.new_from_tuples((x, y), stats.bbox_size)
+        )
+        Emitter.__init__(self)
 
-    def on(self, event: str, callback: EventCallback) -> None:
-        listener = self._listeners.get(event, None)
-        if listener is None:
-            return
-        listener.append(callback)
-
-    def _fire(self, event: str) -> None:
-        for cb in self._listeners.get(event, []):
-            cb()        
+    def emit(self, event: str, *args, **kwargs) -> None:
+        super().emit(event, self, *args, **kwargs)
 
     def held_stack(self) -> None | src.inventory.Stack:
         return None
+
+    @property
+    def id(self) -> int:
+        return id(self)
 
     @property
     def damage(self) -> float:
@@ -241,6 +235,14 @@ class Entity(BoundingBoxed):
         if self._auto_jump_cooldown > 0:
             self._auto_jump_cooldown -= dt  # --- movement ---
 
+        was_walking = self.walking
+        self.walking = self.vel_x != 0 and self.on_ground
+
+        if self.walking and not was_walking:
+            self.emit("start_walking")
+        elif not self.walking and was_walking:
+            self.emit("stop_walking")
+
     def jump(self) -> None:
         if self.on_ground:
             self.vel_y += self.jump_power
@@ -293,7 +295,7 @@ class Entity(BoundingBoxed):
         if self.is_dead:
             return
 
-        self._fire("damage")
+        # self.emit("damage")
 
         self.is_hit = True
         self.hit_timer = 150.0
@@ -332,7 +334,7 @@ class Entity(BoundingBoxed):
     # --- combat ---
 
     def attack(self) -> bool:
-        self._fire("damage")
+        self.emit("damage")
         if self.attack_cooldown <= 0 and not self.is_staggered:
             self.attack_frameindex = 0
             self.attack_cooldown = self.attack_speed
@@ -340,7 +342,7 @@ class Entity(BoundingBoxed):
         return False
 
     def die(self) -> None:
-        self._fire("death")
+        self.emit("death")
         self.is_dead = True
         self._walk_speed_modifier = 0.0
         self.vel_x = 0.0

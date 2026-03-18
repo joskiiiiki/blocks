@@ -8,14 +8,15 @@ from typing import Iterable, Optional
 
 import numpy as np
 
-from src.blocks import Block
+from src.blocks import Block, BlockData
+from src.emitter import Emitter
 from src.entity.entity import Entity
 from src.entity.mob import Mob
 from src.world.chunk import Chunk, ChunkStatus
 from src.world.utils import smooth_caves_with_neighbors, smooth_mask_ce
 
 
-class ChunkManager:
+class ChunkManager(Emitter):
     """Thread-safe chunk manager with coordinated generation and decoration"""
 
     def __init__(
@@ -56,6 +57,8 @@ class ChunkManager:
         self._generation_thread: Optional[threading.Thread] = None
         self._save_thread: Optional[threading.Thread] = None
         self.entities: list[Entity] = []
+
+        Emitter.__init__(self)
 
     def start(self):
         """Start background worker threads"""
@@ -445,7 +448,7 @@ class ChunkManager:
             chunk.blocks[xn, yn] = block
             return True
 
-    def destroy_block(self, x: float, y: float):
+    def destroy_block(self, x: float, y: float) -> BlockData | None:
         """Thread-safe block destruction"""
         coords = self._world_to_chunk(x, y)
         if coords is None:
@@ -552,3 +555,4 @@ class ChunkManager:
 
     def add_entity(self, entity: Entity) -> None:
         self.entities.append(entity)
+        self.emit("entity_added", entity)
