@@ -72,12 +72,12 @@ class Player(Entity):
         self.inventory = Inventory()
         self.hotbar = Hotbar()
 
-        self.inventory.add_stack((Item.TORCH, 100))
-        self.inventory.add_stack((Item.COPPER_TORCH, 100))
-        self.inventory.add_stack((Item.IRON_SWORD, 1))
-        self.inventory.add_stack((Item.IRON_ORE, 100))
-        self.inventory.add_stack((Item.IRON_INGOT, 100))
-        self.inventory.add_stack((Item.STICK, 100))
+        # self.inventory.add_stack((Item.TORCH, 100))
+        # self.inventory.add_stack((Item.COPPER_TORCH, 100))
+        # self.inventory.add_stack((Item.IRON_SWORD, 1))
+        # self.inventory.add_stack((Item.IRON_ORE, 100))
+        # self.inventory.add_stack((Item.IRON_INGOT, 100))
+        # self.inventory.add_stack((Item.STICK, 100))
 
         self.sliding = False
         self.slide_timer = 0.0
