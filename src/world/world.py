@@ -281,3 +281,16 @@ class World(IWorld, Emitter):
             mob = Zombie(x=float(int(x)) + 0.5, y=float(surface_y))
             self.chunk_manager.add_entity(mob)
             return  # one mob per tick
+
+    def save_player(self, player: "Player") -> None:
+        path = self.world_path / "player.json"
+        with path.open("w") as f:
+            json.dump(player.to_json(), f)
+
+    def load_player(self, player: "Player") -> None:
+        path = self.world_path / "player.json"
+        if not path.exists():
+            return
+        with path.open() as f:
+            data = json.load(f)
+        player.from_json(data)

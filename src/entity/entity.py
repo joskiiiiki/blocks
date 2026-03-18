@@ -9,7 +9,7 @@ import pygame
 
 import src.inventory
 from src.bboxed import BoundingBoxed
-from src.blocks import BLOCK_SPEED, Block, damage_of_item
+from src.blocks import BLOCK_SPEED, Block, Item, damage_of_item
 from src.collision import BoundingBox
 from src.emitter import Emitter
 from src.entity.stats import PLAYER_STATS, EntityStats
@@ -114,16 +114,22 @@ class Entity(BoundingBoxed, Emitter):
     def held_stack(self) -> None | src.inventory.Stack:
         return None
 
+    def held_item(self) -> None | Item:
+        stack = self.held_stack()
+        if stack is None:
+            return None
+        return stack[0]
+
     @property
     def id(self) -> int:
         return id(self)
 
     @property
     def damage(self) -> float:
-        stack = self.held_stack()
-        if stack:
-            return damage_of_item(stack[0]) * self.stats.dmg
-        return self.stats.dmg
+        item = self.held_item()
+        if item is None:
+            return self.stats.dmg
+        return self.stats.dmg * item.get_damage_multiplier()
 
     @property
     def maxhealth(self) -> int:
@@ -151,7 +157,11 @@ class Entity(BoundingBoxed, Emitter):
 
     @property
     def attack_speed(self) -> float:
-        return self.stats.attack_speed * self._attack_speed_modifier
+        base = self.stats.attack_speed * self._attack_speed_modifier
+        item = self.held_item()
+        if item is None:
+            return base
+        return base * item.get_attack_speed()
 
     @property
     def walk_speed(self) -> float:

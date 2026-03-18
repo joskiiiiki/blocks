@@ -64,7 +64,8 @@ def _grid_matcher(grid: Grid, pattern: Grid, width: int, height: int) -> bool:
     stripped, sw, sh = strip_grid(grid)
     if sw != width or sh != height:
         return False
-    for slot, expected in zip(stripped, pattern):
+    stripped_pattern, _, _ = strip_grid(pattern)  # strip the pattern too
+    for slot, expected in zip(stripped, stripped_pattern):
         if expected is None:
             if slot is not None:
                 return False
@@ -84,9 +85,8 @@ class Recipe:
     output: Stack
 
     @classmethod
-    def from_pattern(
-        cls, pattern: Grid, width: int, height: int, output: Stack
-    ) -> "Recipe":
+    def from_pattern(cls, pattern: Grid, output: Stack) -> "Recipe":
+        _, width, height = strip_grid(pattern)
         return cls(build_shaped_matcher(pattern, width, height), output)
 
     @classmethod
@@ -105,4 +105,151 @@ def craft(grid: Grid) -> Stack | None:
     return _craft(RECIPES, grid)
 
 
-RECIPES: list[Recipe] = [Recipe.from_single_item((Item.LOG, 1), (Item.PLANKS, 4))]
+RECIPES: list[Recipe] = [
+    # --- basic materials ---
+    Recipe.from_single_item((Item.LOG, 1), (Item.PLANKS, 4)),
+    Recipe.from_pattern(
+        [None, None, None, (Item.PLANKS, 1), None, None, (Item.PLANKS, 1), None, None],
+        (Item.STICK, 4),
+    ),  # --- torches ---
+    Recipe.from_pattern(
+        [None, None, None, (Item.COAL, 1), None, None, (Item.STICK, 1), None, None],
+        (Item.TORCH, 4),
+    ),
+    Recipe.from_pattern(
+        [None, None, None, (Item.AZURITE, 1), None, None, (Item.STICK, 1), None, None],
+        (Item.COPPER_TORCH, 4),
+    ),
+    # --- pickaxe ---
+    Recipe.from_pattern(
+        [
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.STICK, 1),
+            None,
+            None,
+            (Item.STICK, 1),
+            None,
+        ],
+        (Item.PICKAXE, 1),
+    ),
+    # --- axe ---
+    Recipe.from_pattern(
+        [
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.IRON_INGOT, 1),
+            (Item.STICK, 1),
+            None,
+            None,
+            (Item.STICK, 1),
+            None,
+        ],
+        (Item.AXE, 1),
+    ),
+    # --- sword ---
+    Recipe.from_pattern(
+        [
+            None,
+            None,
+            None,
+            (Item.IRON_INGOT, 1),
+            None,
+            None,
+            (Item.STICK, 1),
+            None,
+            None,
+        ],
+        (Item.IRON_SWORD, 1),
+    ),
+    # --- bow ---
+    Recipe.from_pattern(
+        [
+            None,
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.STICK, 1),
+            None,
+            (Item.STICK, 1),
+            None,
+            (Item.IRON_INGOT, 1),
+            None,
+        ],
+        (Item.BOW, 1),
+    ),
+    # --- arrow ---
+    Recipe.from_pattern(
+        [
+            None,
+            (Item.IRON_INGOT, 1),
+            None,
+            None,
+            (Item.STICK, 1),
+            None,
+            None,
+            None,
+            None,
+        ],
+        (Item.ARROW, 4),
+    ),
+    # --- armor ---
+    Recipe.from_pattern(
+        [
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
+        (Item.HELMET, 1),
+    ),
+    Recipe.from_pattern(
+        [
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+        ],
+        (Item.CHESTPLATE, 1),
+    ),
+    Recipe.from_pattern(
+        [
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.IRON_INGOT, 1),
+            None,
+            None,
+            None,
+        ],
+        (Item.PANTS, 1),
+    ),
+    Recipe.from_pattern(
+        [
+            None,
+            None,
+            None,
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.IRON_INGOT, 1),
+            (Item.IRON_INGOT, 1),
+            None,
+            (Item.IRON_INGOT, 1),
+        ],
+        (Item.SHOES, 1),
+    ),
+]

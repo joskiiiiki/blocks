@@ -49,6 +49,8 @@ class Game:
         world = World(world_path, self.on_block_changed)
         if not world:
             return
+
+        self.clock = pygame.Clock()
         self.world = world
 
         self._screen = pygame.display.set_mode(
@@ -79,7 +81,10 @@ class Game:
             "block_destroyed",
             lambda *_: self.sound_manager.play_non_overlapping("break_single"),
         )
-        self.clock = pygame.time.Clock()
+
+        # after world and player init:
+        self.world.load_player(self.player)
+
         self.font = pygame.Font(None, FONT_SIZE)
 
         self.damage_overlay = DamageOverlay(self.ctx, HIT_FLASH_DURATION)
@@ -97,7 +102,7 @@ class Game:
         self.running = True
         dt = 1 / self.framerate
 
-        self.sound_manager.play_music()
+        # self.sound_manager.play_music()
 
         while self.running:
             # self._screen.fill(assets.COLOR_SKY)
@@ -204,6 +209,8 @@ class Game:
         self.world.chunk_manager.shutdown()
         self.overlay.on_destroy()  # release buffers
         self.damage_overlay.destroy()
+
+        self.world.save_player(self.player)
         pygame.quit()
 
 

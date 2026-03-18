@@ -203,6 +203,8 @@ class LightingManagerGL:
         light_map = np.transpose(light_map, (1, 0, 2))  # [width, height, 4]
         light_map = light_map[:, :, :3]  # Drop alpha channel, keep RGB
 
+        # light_map = np.ones(light_map.shape, dtype=np.float32) # dor debugging
+
         # Split back into individual chunks
         chunk_width = self.chunk_manager.width
         for i, chunk_x in enumerate(range(chunk_x_min, chunk_x_max + 1)):

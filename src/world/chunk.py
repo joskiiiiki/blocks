@@ -19,6 +19,18 @@ from src.world.gen_context import WorldGenContext
 CHUNK_WIDTH = 32
 CHUNK_HEIGHT = 512
 
+ORE_SETTINGS: list[tuple[Block, int, int, float, float]] = [
+    # block,                  min_y, max_y, frequency, threshold
+    (Block.COAL_ORE, 40, 240, 0.15, 0.55),
+    (Block.IRON_ORE, 10, 180, 0.15, 0.57),
+    (Block.AZURITE_ORE, 5, 120, 0.15, 0.58),
+    (Block.EMERALD_ORE, 5, 80, 0.15, 0.60),
+    (Block.DIAMOND_ORE, 0, 30, 0.15, 0.62),
+    (Block.IRONQUARTZ_ORE, 0, 60, 0.15, 0.60),
+    (Block.SHADOW_ORE, 0, 40, 0.15, 0.62),
+    (Block.VOID_ORE, 0, 15, 0.15, 0.64),
+]
+
 
 class ChunkStatus(Enum):
     UNGENERATED = 0
@@ -137,6 +149,7 @@ class Chunk:
                 self.blocks[x, terrain_height:(base_height)] = 4
 
         self.generate_caves(gen_ctx)
+        self.generate_ores(gen_ctx)
 
         self.status = ChunkStatus.TERRAIN_GENERATED
 
@@ -251,6 +264,36 @@ class Chunk:
         )
 
         region[cave_mask] = Block.AIR.value
+
+    def generate_ores(self, ctx: WorldGenContext):
+        x_world = np.arange(
+            self.chunk_x * self.width,
+            (self.chunk_x + 1) * self.width,
+            dtype=np.float32,
+        )
+
+        for block, min_y, max_y, frequency, threshold in ORE_SETTINGS:
+            min_y = max(0, min_y)
+            max_y = min(self.height - 1, max_y)
+            if min_y > max_y:
+                continue
+
+            y_world = np.arange(min_y, max_y + 1, dtype=np.float32)
+            X, Y = np.meshgrid(x_world, y_world, indexing="ij")
+
+            # offset Y by block value to get different noise per ore type
+            coords = np.stack([X.flatten(), Y.flatten() + block.value * 100], axis=0)
+
+            ctx.noise.frequency = frequency
+            ctx.noise.noise_type = NoiseType.NoiseType_Perlin
+            ctx.noise.fractal_type = FractalType.FractalType_None
+            noise = ctx.noise.gen_from_coords(coords).reshape(
+                self.width, max_y - min_y + 1
+            )
+
+            region = self.blocks[:, min_y : max_y + 1]
+            ore_mask = (noise > threshold) & (region == Block.STONE.value)
+            region[ore_mask] = block.value
 
     def _decorate_region(self, x_min: int, x_max: int, ctx: WorldGenContext):
         """Decorate a specific region of this chunk."""

@@ -7,7 +7,7 @@ from typing import Optional
 import pygame
 
 from src.assets import TILE_SIZE, get_animation, get_texture
-from src.blocks import BLOCK_SPEED, Block, Item
+from src.blocks import BLOCK_SPEED, DEFAULT_BREAK_TIME, Block, Item
 from src.entity.entity import Entity
 from src.entity.stats import PLAYER_STATS
 from src.interfaces import IWorld
@@ -74,7 +74,10 @@ class Player(Entity):
 
         self.inventory.add_stack((Item.TORCH, 100))
         self.inventory.add_stack((Item.COPPER_TORCH, 100))
-        self.inventory.add_stack((Item.IRON_SWORD, 100))
+        self.inventory.add_stack((Item.IRON_SWORD, 1))
+        self.inventory.add_stack((Item.IRON_ORE, 100))
+        self.inventory.add_stack((Item.IRON_INGOT, 100))
+        self.inventory.add_stack((Item.STICK, 100))
 
         self.sliding = False
         self.slide_timer = 0.0
@@ -89,6 +92,12 @@ class Player(Entity):
         if stack is None:
             return
         return stack
+
+    def held_item(self) -> Item | None:
+        stack = self.held_stack()
+        if stack is None:
+            return
+        return stack[0]
 
     def handle_mousewheel(self, event: pygame.event.Event) -> None:
         if event.type == pygame.MOUSEWHEEL:
@@ -197,8 +206,15 @@ class Player(Entity):
     def handle_left_click(self, delta_t: float, i_world: IWorld) -> bool:
         x, y = to_block(*self.cursor_position_world)
 
+        block = i_world.get_block(x, y)
+        tool = self.held_item()
+
+        break_time = (
+            block.get_break_time_with(tool) if block is not None else DEFAULT_BREAK_TIME
+        )
+
         if self.break_progress is None or self.break_progress[2:4] != (x, y):
-            self.break_progress = (0.05, time(), x, y)
+            self.break_progress = (break_time, time(), x, y)
             return False
 
         duration = self.break_progress[0]
@@ -213,7 +229,7 @@ class Player(Entity):
         if not block:
             return False
 
-        item = block.get_item()
+        item = block.get_dropped_item()
         if item:
             self.inventory.add_stack((item, 1))
 
@@ -381,3 +397,23 @@ class Player(Entity):
         )
 
         self.hotbar.draw(surface, self.inventory.get_hotbar_slots())
+
+        
+    def to_json(self) -> dict:
+        return super().to_json() | {
+            "inventory": {
+                str(slot): [stack[0].value, stack[1]]
+                for slot, stack in self.inventory.slots.items()
+            },
+            "hotbar_selected": self.hotbar.selected_slot,
+            "is_facing_right": self.is_facing_right,
+        }
+
+    def from_json(self, data: dict) -> None:
+        super().from_json(data)
+        self.inventory.slots = {
+            int(slot): (Item(stack[0]), stack[1])
+            for slot, stack in data.get("inventory", {}).items()
+        }
+        self.hotbar.selected_slot = data.get("hotbar_selected", 0)
+        self.is_facing_right = data.get("is_facing_right", True)
